@@ -1,0 +1,5 @@
+{
+  "name": "即刻运营同步助手",
+  "description": "用于将即刻视频统计数据同步到飞书多维表格的运营仪表盘。",
+  "requestFramePermissions": []
+}
