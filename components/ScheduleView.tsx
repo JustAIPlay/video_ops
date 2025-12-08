@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Loader2, Video, AlertCircle, Activity, FileText } from 'lucide-react';
+import { Play, Loader2, Video, AlertCircle, Activity, FileText, MessageSquare } from 'lucide-react';
 import { AppConfig, ScheduleItem, SyncLog } from '../types';
 import LogConsole from './LogConsole';
 import { fetchScheduleData } from '../services/feishuService';
@@ -192,9 +192,31 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
           </div>
         </div>
 
-        {/* Logs - Takes up 1/3 space */}
-        <div className="flex-1 min-h-0">
-            <LogConsole logs={logs} />
+        {/* Logs and AI Chat - Takes up 1/3 space */}
+        <div className="flex-1 min-h-0 flex flex-col gap-6 lg:gap-8">
+            {/* Real-time Updates */}
+            <div className="flex-1 min-h-0">
+                <LogConsole logs={logs} />
+            </div>
+
+            {/* AI Chat */}
+            <div className="flex-1 min-h-0 bg-white rounded-3xl shadow-xl shadow-slate-100 border border-white flex flex-col relative overflow-hidden">
+                <div className="p-6 border-b border-slate-50 flex items-center gap-3 relative z-10">
+                    <div className="w-10 h-10 rounded-xl bg-violet-50 text-violet-500 flex items-center justify-center">
+                        <MessageSquare className="w-5 h-5" />
+                    </div>
+                    <h3 className="font-bold text-lg text-slate-800">AI 对话</h3>
+                </div>
+                
+                <div className="flex-1 flex items-center justify-center relative z-10 bg-slate-50/50 m-6 rounded-2xl border-2 border-dashed border-slate-200">
+                     <div className="text-center">
+                        <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                            <MessageSquare className="w-8 h-8 text-slate-300" />
+                        </div>
+                        <p className="font-bold text-slate-400">开发中...</p>
+                     </div>
+                </div>
+            </div>
         </div>
       </div>
     </div>
