@@ -152,7 +152,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
                             <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider first:pl-8">视频编号</th>
                             <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">内容描述</th>
                             <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">浏览量</th>
-                            <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">重复次数</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">历史发布次数</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">账号今日发布次数</th>
                             <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right last:pr-8">发布时间</th>
                         </tr>
                     </thead>
@@ -168,6 +169,17 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
                                     }`}>
                                         {item.repeatCount}
                                     </span>
+                                </td>
+                                <td className="px-6 py-4 text-center">
+                                    {(item.accountTodayCount || 0) > 0 ? (
+                                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-600">
+                                            {item.accountTodayCount}
+                                        </span>
+                                    ) : (
+                                        <span className="text-slate-700 font-bold">
+                                            {item.accountTodayCount ?? 0}
+                                        </span>
+                                    )}
                                 </td>
                                 <td className="px-6 py-4 text-right text-sm font-medium text-slate-400 last:pr-8">
                                     {item.publishTime ? new Date(item.publishTime).toLocaleDateString() : '-'}

@@ -299,8 +299,9 @@ export const fetchScheduleData = async (
   logCallback(`开始读取数据，共 ${groupNames.length} 个分组 (仅处理“绿植”和“图书”)...`);
 
   for (const groupName of groupNames) {
-    // Filter: Only process "绿植" or "图书" groups
-    if (!groupName.includes("绿植") && !groupName.includes("图书")) {
+    // Filter: Only process allowed groups
+    const allowedGroups = ["绿植", "图书", "汽车", "家清", "百货"];
+    if (!allowedGroups.some(g => groupName.includes(g))) {
       continue;
     }
 
@@ -311,6 +312,8 @@ export const fetchScheduleData = async (
 
     // Per-group video count map (Intra-group comparison)
     const videoCountMap = new Map<string, number>();
+    // Per-group account today publish count map
+    const accountTodayCountMap = new Map<string, number>();
 
     try {
       logCallback(`正在读取分组: ${groupName}...`);
@@ -319,9 +322,10 @@ export const fetchScheduleData = async (
       
       // Try to fetch with "视频编号" first, fallback to "文案编号"
       let idField = "视频编号";
+      let accountField = "账号";
       let records: any[] = [];
       
-      const fetchWithIdField = async (field: string) => {
+      const fetchWithIdField = async (field: string, accField: string) => {
         const collected: any[] = [];
         let pageToken = '';
         let hasMore = true;
@@ -333,7 +337,7 @@ export const fetchScheduleData = async (
         while (hasMore && pageCount < MAX_PAGES) {
           pageCount++;
           const queryParams = new URLSearchParams({
-            field_names: JSON.stringify([field, "内容描述", "浏览次数", "发布时间"]),
+            field_names: JSON.stringify([field, "内容描述", "浏览次数", "发布时间", accField]),
             page_size: '500' // Max page size
           });
           if (pageToken) queryParams.append('page_token', pageToken);
@@ -370,12 +374,31 @@ export const fetchScheduleData = async (
       };
 
       try {
-        records = await fetchWithIdField("视频编号");
+        records = await fetchWithIdField("视频编号", "账号");
       } catch (e: any) {
-        if (e.message && e.message.includes('FieldNameNotFound')) {
-           logCallback(`[提示] 分组 ${groupName} 未找到"视频编号"字段，尝试使用"文案编号"...`);
-           idField = "文案编号";
-           records = await fetchWithIdField("文案编号");
+        const errMsg = e.message || "";
+        if (errMsg.includes('FieldNameNotFound')) {
+            if (errMsg.includes('账号')) {
+                logCallback(`[提示] 分组 ${groupName} 未找到"账号"字段，尝试使用"帐号"...`);
+                accountField = "帐号";
+                try {
+                    records = await fetchWithIdField("视频编号", "帐号");
+                } catch (e2: any) {
+                     if (e2.message && e2.message.includes('FieldNameNotFound') && e2.message.includes('视频编号')) {
+                         logCallback(`[提示] 分组 ${groupName} 未找到"视频编号"字段，尝试使用"文案编号"...`);
+                         idField = "文案编号";
+                         records = await fetchWithIdField("文案编号", "帐号");
+                     } else {
+                         throw e2;
+                     }
+                }
+            } else if (errMsg.includes('视频编号')) {
+                logCallback(`[提示] 分组 ${groupName} 未找到"视频编号"字段，尝试使用"文案编号"...`);
+                idField = "文案编号";
+                records = await fetchWithIdField("文案编号", "账号");
+            } else {
+                throw e;
+            }
         } else {
            throw e;
         }
@@ -383,12 +406,16 @@ export const fetchScheduleData = async (
       
       console.log(`[DEBUG] Group ${groupName} - Total records fetched: ${records.length}`);
 
-      // First pass: Calculate repetition counts within this group
+      // First pass: Calculate repetition counts and account today publish counts
       let validIdCount = 0;
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+
       for (const record of records) {
           const fields = record.fields;
           const videoId = fields[idField];
-          if (!videoId) continue;
           
           // Helper to safely extract string value
           const extractValue = (val: any): string => {
@@ -404,9 +431,26 @@ export const fetchScheduleData = async (
              return String(val);
           };
 
-          const vIdStr = extractValue(videoId);
-          videoCountMap.set(vIdStr, (videoCountMap.get(vIdStr) || 0) + 1);
-          validIdCount++;
+          if (videoId) {
+            const vIdStr = extractValue(videoId);
+            videoCountMap.set(vIdStr, (videoCountMap.get(vIdStr) || 0) + 1);
+            validIdCount++;
+          }
+          
+          // Calculate Account Today Publish Count
+          const accountName = extractValue(fields[accountField]);
+          const pubTime = fields["发布时间"];
+          let pubTimestamp = 0;
+          if (typeof pubTime === 'number') {
+              pubTimestamp = pubTime;
+          } else if (typeof pubTime === 'string') {
+              const parsed = new Date(pubTime).getTime();
+              if (!isNaN(parsed)) pubTimestamp = parsed;
+          }
+
+          if (accountName && pubTimestamp >= todayStart.getTime() && pubTimestamp <= todayEnd.getTime()) {
+              accountTodayCountMap.set(accountName, (accountTodayCountMap.get(accountName) || 0) + 1);
+          }
       }
       console.log(`[DEBUG] Group ${groupName} - Records with valid ID: ${validIdCount}`);
 
@@ -454,6 +498,10 @@ export const fetchScheduleData = async (
         const vIdStr = extractValue(videoId);
         const repeatCount = videoCountMap.get(vIdStr) || 0;
         const readCount = extractNumber(fields["浏览次数"]);
+        const accountName = extractValue(fields[accountField]);
+        const accountTodayCount = accountTodayCountMap.get(accountName) || 0;
+
+
         
         // console.log(`[DEBUG] Processing item: ${vIdStr}, readCountRaw: ${JSON.stringify(fields["浏览次数"])}, readCountParsed: ${readCount}, repeatCount: ${repeatCount}`);
 
@@ -468,7 +516,9 @@ export const fetchScheduleData = async (
                 groupName: groupName,
                 publishTime: fields["发布时间"], 
                 repeatCount: repeatCount, 
-                url: ""
+                url: "",
+                accountName: accountName,
+                accountTodayCount: accountTodayCount
             });
             passedFilterCount++;
         } else {
@@ -488,6 +538,28 @@ export const fetchScheduleData = async (
   // Sort by readCount descending (highest views first)
   allItems.sort((a, b) => b.readCount - a.readCount);
 
-  logCallback(`筛选完成，共找到 ${allItems.length} 条符合排期条件的视频。`);
-  return allItems;
+  // Deduplicate logic
+  // For "绿植", "图书": Keep only the first occurrence (highest readCount) for each videoId within the same group
+  // For "汽车", "家清", "百货": Do NOT deduplicate, keep all records
+  const uniqueItems: ScheduleItem[] = [];
+  const seenForDedupeGroups = new Set<string>();
+  const dedupeGroups = ["绿植", "图书"];
+
+  for (const item of allItems) {
+    const shouldDedupe = dedupeGroups.some(g => item.groupName.includes(g));
+    
+    if (shouldDedupe) {
+        const key = `${item.groupName}-${item.videoId}`;
+        if (!seenForDedupeGroups.has(key)) {
+            seenForDedupeGroups.add(key);
+            uniqueItems.push(item);
+        }
+    } else {
+        // For other groups (汽车, 家清, 百货), always add
+        uniqueItems.push(item);
+    }
+  }
+
+  logCallback(`筛选完成，共找到 ${uniqueItems.length} 条符合排期条件的视频。`);
+  return uniqueItems;
 };

@@ -84,4 +84,6 @@ export interface ScheduleItem {
   publishTime?: number; // 发布时间
   repeatCount: number; // 重复次数
   url?: string; // 链接
+  accountName?: string; // 账号名称
+  accountTodayCount?: number; // 账号今日发布次数
 }
