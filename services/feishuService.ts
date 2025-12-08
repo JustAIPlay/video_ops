@@ -1,4 +1,4 @@
-import { VideoItem, AppConfig } from "../types";
+import { VideoItem, AppConfig, ScheduleItem } from "../types";
 
 // Token caching
 let cachedToken: string | null = null;
@@ -288,100 +288,206 @@ export const mapVideoToFeishuFields = (video: VideoItem, accountName: string, gr
     };
   };
 
-export interface ResearchItem {
-  recordId: string;
-  order: number;
-  accountName: string;
-}
 
-export const fetchResearchRecords = async (config: AppConfig): Promise<ResearchItem[]> => {
-  const { baseToken, tableId } = config.researchConfig || {};
-  if (!baseToken || !tableId) {
-    throw new Error("Missing Research Config (Base Token or Table ID)");
-  }
+export const fetchScheduleData = async (
+  config: AppConfig,
+  logCallback: (msg: string) => void
+): Promise<ScheduleItem[]> => {
+  const allItems: ScheduleItem[] = [];
 
-  // Use App Token directly as per user instruction (feishu.cn/base/...)
-  // But we still need Tenant Access Token to call API
-  const token = await getAccessToken(config.feishuAppId, config.feishuAppSecret);
+  const groupNames = Object.keys(config.accountTableMapping);
+  logCallback(`开始读取数据，共 ${groupNames.length} 个分组 (仅处理“绿植”和“图书”)...`);
 
-  const items: ResearchItem[] = [];
-  let pageToken = '';
-  let hasMore = true;
-
-  // Fetch all records
-  while (hasMore) {
-    const queryParams = new URLSearchParams({
-      field_names: '["视频号账号名称", "auto-run"]',
-      page_size: '500' 
-    });
-    // User said "Temporarily do not consider pagination", but loop is safer.
-    if (pageToken) queryParams.append('page_token', pageToken);
-
-    // Note: User said "use APP_TOKEN directly... no need to convert Wiki".
-    // So we use baseToken directly.
-    const listUrl = `/feishu-api/open-apis/bitable/v1/apps/${baseToken}/tables/${tableId}/records?${queryParams.toString()}`;
-    
-    const res = await fetch(listUrl, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await res.json();
-    
-    if (data.code !== 0) {
-        throw new Error(`Fetch Records Failed: ${data.msg}`);
+  for (const groupName of groupNames) {
+    // Filter: Only process "绿植" or "图书" groups
+    if (!groupName.includes("绿植") && !groupName.includes("图书")) {
+      continue;
     }
 
-    if (data.data.items) {
-        for (const item of data.data.items) {
-            const nameVal = item.fields["视频号账号名称"];
-            const autoRunVal = item.fields["auto-run"];
-            
-            // Filter: If "auto-run" is explicitly "N", skip it.
-            if (String(autoRunVal) === 'N') {
-                continue;
-            }
-            
-            // Filter invalid data
-            if (nameVal) {
-                items.push({
-                    recordId: item.record_id,
-                    order: 0,
-                    accountName: String(nameVal)
-                });
-            }
+    const targetConfig = config.accountTableMapping[groupName];
+    if (!targetConfig || !targetConfig.baseToken || !targetConfig.tableId) {
+      continue;
+    }
+
+    // Per-group video count map (Intra-group comparison)
+    const videoCountMap = new Map<string, number>();
+
+    try {
+      logCallback(`正在读取分组: ${groupName}...`);
+      const token = await getAccessToken(config.feishuAppId, config.feishuAppSecret);
+      const baseToken = await resolveBaseToken(targetConfig.baseToken, token);
+      
+      // Try to fetch with "视频编号" first, fallback to "文案编号"
+      let idField = "视频编号";
+      let records: any[] = [];
+      
+      const fetchWithIdField = async (field: string) => {
+        const collected: any[] = [];
+        let pageToken = '';
+        let hasMore = true;
+        
+        // Safety break
+        let pageCount = 0;
+        const MAX_PAGES = 20; // Limit to prevent infinite loops
+
+        while (hasMore && pageCount < MAX_PAGES) {
+          pageCount++;
+          const queryParams = new URLSearchParams({
+            field_names: JSON.stringify([field, "内容描述", "浏览次数", "发布时间"]),
+            page_size: '500' // Max page size
+          });
+          if (pageToken) queryParams.append('page_token', pageToken);
+
+          const listUrl = `/feishu-api/open-apis/bitable/v1/apps/${baseToken}/tables/${targetConfig.tableId}/records?${queryParams.toString()}`;
+          
+          console.log(`[DEBUG] Fetching records for group: ${groupName}`);
+          console.log(`[DEBUG] Request URL: ${listUrl}`);
+          
+          const res = await fetch(listUrl, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          
+          console.log(`[DEBUG] Response for ${groupName} (field: ${field}):`, data);
+          if (data.data && data.data.items && data.data.items.length > 0) {
+            console.log(`[DEBUG] Available fields for group ${groupName}:`, Object.keys(data.data.items[0].fields));
+          }
+
+          if (data.code !== 0) {
+             console.error(`[DEBUG] Error response for ${groupName}:`, data);
+             throw new Error(data.msg);
+          }
+
+          if (data.data.items) {
+            collected.push(...data.data.items);
+          }
+          hasMore = data.data.has_more;
+          pageToken = data.data.page_token;
         }
-    }
+        console.log(`[DEBUG] Finished fetching group ${groupName}. Total records: ${collected.length}`);
+        return collected;
+      };
 
-    hasMore = data.data.has_more;
-    pageToken = data.data.page_token;
+      try {
+        records = await fetchWithIdField("视频编号");
+      } catch (e: any) {
+        if (e.message && e.message.includes('FieldNameNotFound')) {
+           logCallback(`[提示] 分组 ${groupName} 未找到"视频编号"字段，尝试使用"文案编号"...`);
+           idField = "文案编号";
+           records = await fetchWithIdField("文案编号");
+        } else {
+           throw e;
+        }
+      }
+      
+      console.log(`[DEBUG] Group ${groupName} - Total records fetched: ${records.length}`);
+
+      // First pass: Calculate repetition counts within this group
+      let validIdCount = 0;
+      for (const record of records) {
+          const fields = record.fields;
+          const videoId = fields[idField];
+          if (!videoId) continue;
+          
+          // Helper to safely extract string value
+          const extractValue = (val: any): string => {
+             if (!val) return "";
+             if (typeof val === 'string') return val;
+             if (typeof val === 'number') return String(val);
+             if (Array.isArray(val)) {
+                 return val.length > 0 ? extractValue(val[0]) : "";
+             }
+             if (typeof val === 'object') {
+                 return val.text || val.value || val.link || JSON.stringify(val);
+             }
+             return String(val);
+          };
+
+          const vIdStr = extractValue(videoId);
+          videoCountMap.set(vIdStr, (videoCountMap.get(vIdStr) || 0) + 1);
+          validIdCount++;
+      }
+      console.log(`[DEBUG] Group ${groupName} - Records with valid ID: ${validIdCount}`);
+
+      // Second pass: Filter and Add items
+      let passedFilterCount = 0;
+      let rejectedByViews = 0;
+      let rejectedByRepeat = 0;
+
+      for (const record of records) {
+        const fields = record.fields;
+        const videoId = fields[idField];
+        
+        // Skip if videoId is missing
+        if (!videoId) continue;
+        
+          // Helper (duplicated for scope, could be hoisted)
+          const extractValue = (val: any): string => {
+             if (!val) return "";
+             if (typeof val === 'string') return val;
+             if (typeof val === 'number') return String(val);
+             if (Array.isArray(val)) {
+                 return val.length > 0 ? extractValue(val[0]) : "";
+             }
+             if (typeof val === 'object') {
+                 return val.text || val.value || val.link || JSON.stringify(val);
+             }
+             return String(val);
+          };
+
+          const extractNumber = (val: any): number => {
+            if (val === null || val === undefined) return 0;
+            if (typeof val === 'number') return val;
+            if (typeof val === 'string') return parseFloat(val) || 0;
+            if (Array.isArray(val)) {
+                return val.length > 0 ? extractNumber(val[0]) : 0;
+            }
+            if (typeof val === 'object') {
+                // Handle lookup/formula objects commonly found in Feishu
+                const inner = val.value || val.text || val.link;
+                if (inner) return extractNumber(inner);
+            }
+            return 0;
+          };
+
+        const vIdStr = extractValue(videoId);
+        const repeatCount = videoCountMap.get(vIdStr) || 0;
+        const readCount = extractNumber(fields["浏览次数"]);
+        
+        // console.log(`[DEBUG] Processing item: ${vIdStr}, readCountRaw: ${JSON.stringify(fields["浏览次数"])}, readCountParsed: ${readCount}, repeatCount: ${repeatCount}`);
+
+        // Apply Filtering Rules Immediately
+        // Rule: readCount >= 1000 AND repeatCount < 3
+        if (readCount >= 1000 && repeatCount < 3) {
+            allItems.push({
+                id: record.record_id,
+                videoId: vIdStr,
+                description: fields["内容描述"] || "",
+                readCount: readCount,
+                groupName: groupName,
+                publishTime: fields["发布时间"], 
+                repeatCount: repeatCount, 
+                url: ""
+            });
+            passedFilterCount++;
+        } else {
+            if (readCount < 1000) rejectedByViews++;
+            else if (repeatCount >= 3) rejectedByRepeat++;
+        }
+      }
+      console.log(`[DEBUG] Group ${groupName} - Records passed: ${passedFilterCount}, Rejected by Views(<1000): ${rejectedByViews}, Rejected by Repeat(>=3): ${rejectedByRepeat}`);
+      logCallback(`[统计] 分组 ${groupName}: 筛选通过 ${passedFilterCount} 条 (浏览量不足: ${rejectedByViews}, 重复过多: ${rejectedByRepeat})`);
+
+    } catch (e: any) {
+      console.error(`Error fetching group ${groupName}:`, e);
+      logCallback(`[错误] 读取分组 ${groupName} 失败: ${e.message}`);
+    }
   }
 
-  // Return items as is (natural order from API, likely creation order or undefined but consistent with record_id)
-  return items;
-};
+  // Sort by readCount descending (highest views first)
+  allItems.sort((a, b) => b.readCount - a.readCount);
 
-export const updateRecordField = async (config: AppConfig, recordId: string, fieldName: string, value: any) => {
-    const { baseToken, tableId } = config.researchConfig || {};
-    if (!baseToken || !tableId) throw new Error("Missing Config");
-
-    const token = await getAccessToken(config.feishuAppId, config.feishuAppSecret);
-    
-    const updateUrl = `/feishu-api/open-apis/bitable/v1/apps/${baseToken}/tables/${tableId}/records/${recordId}`;
-    const res = await fetch(updateUrl, {
-        method: 'PUT',
-        headers: { 
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            fields: {
-                [fieldName]: value
-            }
-        })
-    });
-    
-    const data = await res.json();
-    if (data.code !== 0) {
-        throw new Error(`Update Failed: ${data.msg}`);
-    }
+  logCallback(`筛选完成，共找到 ${allItems.length} 条符合排期条件的视频。`);
+  return allItems;
 };

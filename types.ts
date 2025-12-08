@@ -74,3 +74,14 @@ export interface AppConfig {
   // Map JiKe username (or group name) to specific Base Token and Table ID
   accountTableMapping: Record<string, TargetConfig>; 
 }
+
+export interface ScheduleItem {
+  id: string; // Record ID
+  videoId: string; // 视频编号
+  description: string; // 内容描述
+  readCount: number; // 浏览次数
+  groupName: string; // 分组名
+  publishTime?: number; // 发布时间
+  repeatCount: number; // 重复次数
+  url?: string; // 链接
+}
