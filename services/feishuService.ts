@@ -296,11 +296,11 @@ export const fetchScheduleData = async (
   const allItems: ScheduleItem[] = [];
 
   const groupNames = Object.keys(config.accountTableMapping);
-  logCallback(`开始读取数据，共 ${groupNames.length} 个分组 (仅处理“绿植”和“图书”)...`);
+  logCallback(`开始读取数据，共 ${groupNames.length} 个分组 (仅处理“ai绿植”和“图书”)...`);
 
   for (const groupName of groupNames) {
     // Filter: Only process allowed groups
-    const allowedGroups = ["绿植", "图书", "汽车", "家清", "百货"];
+    const allowedGroups = ["ai绿植", "图书", "汽车", "家清", "百货"];
     if (!allowedGroups.some(g => groupName.includes(g))) {
       continue;
     }
@@ -539,11 +539,11 @@ export const fetchScheduleData = async (
   allItems.sort((a, b) => b.readCount - a.readCount);
 
   // Deduplicate logic
-  // For "绿植", "图书": Keep only the first occurrence (highest readCount) for each videoId within the same group
+  // For "ai绿植", "图书": Keep only the first occurrence (highest readCount) for each videoId within the same group
   // For "汽车", "家清", "百货": Do NOT deduplicate, keep all records
   const uniqueItems: ScheduleItem[] = [];
   const seenForDedupeGroups = new Set<string>();
-  const dedupeGroups = ["绿植", "图书"];
+  const dedupeGroups = ["ai绿植", "图书"];
 
   for (const item of allItems) {
     const shouldDedupe = dedupeGroups.some(g => item.groupName.includes(g));

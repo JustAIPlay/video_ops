@@ -140,7 +140,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, onSave }) => {
                             type="text"
                             value={newAccount}
                             onChange={(e) => setNewAccount(e.target.value)}
-                            placeholder="例如: 绿植"
+                            placeholder="例如: ai绿植"
                             className="w-full px-4 py-3 bg-white border-none rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 transition-all outline-none shadow-sm"
                         />
                     </div>

@@ -149,7 +149,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
                 <table className="w-full text-left border-collapse">
                     <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
                         <tr>
-                            <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider first:pl-8">视频编号</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider first:pl-8">账号</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">视频编号</th>
                             <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">内容描述</th>
                             <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">浏览量</th>
                             <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-center">历史发布次数</th>
@@ -160,7 +161,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
                     <tbody className="divide-y divide-slate-50">
                         {filteredResults.map((item) => (
                             <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
-                                <td className="px-6 py-4 font-mono text-sm font-medium text-slate-600 first:pl-8">{item.videoId}</td>
+                                <td className="px-6 py-4 font-mono text-sm font-medium text-slate-600 first:pl-8">{item.accountName}</td>
+                                <td className="px-6 py-4 font-mono text-sm font-medium text-slate-600">{item.videoId}</td>
                                 <td className="px-6 py-4 max-w-xs truncate text-sm font-medium text-slate-700" title={item.description}>{item.description}</td>
                                 <td className="px-6 py-4 text-right font-bold text-slate-700">{item.readCount.toLocaleString()}</td>
                                 <td className="px-6 py-4 text-center">
