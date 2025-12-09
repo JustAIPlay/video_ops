@@ -538,28 +538,10 @@ export const fetchScheduleData = async (
   // Sort by readCount descending (highest views first)
   allItems.sort((a, b) => b.readCount - a.readCount);
 
-  // Deduplicate logic
-  // For "ai绿植", "图书": Keep only the first occurrence (highest readCount) for each videoId within the same group
-  // For "汽车", "家清", "百货": Do NOT deduplicate, keep all records
-  const uniqueItems: ScheduleItem[] = [];
-  const seenForDedupeGroups = new Set<string>();
-  const dedupeGroups = ["ai绿植", "图书"];
-
-  for (const item of allItems) {
-    const shouldDedupe = dedupeGroups.some(g => item.groupName.includes(g));
-    
-    if (shouldDedupe) {
-        const key = `${item.groupName}-${item.videoId}`;
-        if (!seenForDedupeGroups.has(key)) {
-            seenForDedupeGroups.add(key);
-            uniqueItems.push(item);
-        }
-    } else {
-        // For other groups (汽车, 家清, 百货), always add
-        uniqueItems.push(item);
-    }
-  }
-
-  logCallback(`筛选完成，共找到 ${uniqueItems.length} 条符合排期条件的视频。`);
-  return uniqueItems;
+  // Deduplicate logic removed from backend.
+  // We return ALL items that pass the basic threshold (readCount >= 1000 && repeatCount < 3).
+  // Deduplication is now handled in the frontend (ScheduleView) based on user selection.
+  
+  logCallback(`筛选完成，共找到 ${allItems.length} 条符合排期条件的视频。`);
+  return allItems;
 };

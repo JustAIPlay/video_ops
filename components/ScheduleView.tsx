@@ -13,14 +13,33 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
   const [isComputing, setIsComputing] = useState(false);
   const [results, setResults] = useState<ScheduleItem[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
+  const [deduplicationMode, setDeduplicationMode] = useState<'all' | 'unique'>('all');
 
   // Compute unique groups for the filter dropdown
   const uniqueGroups = Array.from(new Set(results.map(r => r.groupName))).sort();
 
-  // Filter results based on selected group
-  const filteredResults = selectedGroup === 'all' 
-    ? results 
-    : results.filter(r => r.groupName === selectedGroup);
+  // Filter results based on selected group and deduplication mode
+  const filteredResults = (() => {
+    // 1. Group Filter
+    let list = selectedGroup === 'all' 
+      ? results 
+      : results.filter(r => r.groupName === selectedGroup);
+
+    // 2. Deduplication Filter
+    if (deduplicationMode === 'unique') {
+        const seen = new Set<string>();
+        const uniqueList: ScheduleItem[] = [];
+        for (const item of list) {
+             const key = `${item.groupName}-${item.videoId}`;
+             if (!seen.has(key)) {
+                 seen.add(key);
+                 uniqueList.push(item);
+             }
+        }
+        list = uniqueList;
+    }
+    return list;
+  })();
 
   const addLog = (level: SyncLog['level'], message: string, detail?: string) => {
     setLogs(prev => [...prev, {
@@ -111,20 +130,34 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
             </div>
             
             {results.length > 0 && (
-              <div className="flex items-center space-x-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">筛选分组</span>
-                <select
-                  value={selectedGroup}
-                  onChange={(e) => setSelectedGroup(e.target.value)}
-                  className="bg-transparent text-sm font-bold text-slate-700 border-none focus:ring-0 cursor-pointer outline-none"
-                >
-                  <option value="all">全部 ({results.length})</option>
-                  {uniqueGroups.map(group => (
-                    <option key={group} value={group}>
-                      {group} ({results.filter(r => r.groupName === group).length})
-                    </option>
-                  ))}
-                </select>
+              <div className="flex items-center gap-3">
+                  <div className="flex items-center space-x-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">筛选分组</span>
+                    <select
+                      value={selectedGroup}
+                      onChange={(e) => setSelectedGroup(e.target.value)}
+                      className="bg-transparent text-sm font-bold text-slate-700 border-none focus:ring-0 cursor-pointer outline-none"
+                    >
+                      <option value="all">全部 ({results.length})</option>
+                      {uniqueGroups.map(group => (
+                        <option key={group} value={group}>
+                          {group} ({results.filter(r => r.groupName === group).length})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center space-x-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">去重展示</span>
+                    <select
+                      value={deduplicationMode}
+                      onChange={(e) => setDeduplicationMode(e.target.value as 'all' | 'unique')}
+                      className="bg-transparent text-sm font-bold text-slate-700 border-none focus:ring-0 cursor-pointer outline-none"
+                    >
+                      <option value="all">全部展示</option>
+                      <option value="unique">去重展示</option>
+                    </select>
+                  </div>
               </div>
             )}
           </div>

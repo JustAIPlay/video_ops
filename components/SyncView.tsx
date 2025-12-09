@@ -40,7 +40,7 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
     
     try {
       // 1. Fetch Data
-      addLog('info', `正在连接${useMock ? '模拟' : '本地'}即刻 API 服务...`, useMock ? '模拟延迟' : '端点: /sph/api/post_statistics');
+      addLog('info', `正在连接${useMock ? '模拟' : '本地'}大航海 API 服务...`, useMock ? '模拟延迟' : '端点: /sph/api/post_statistics');
       
       // Smart Filter Logic:
       // If input contains only digits/commas/spaces, treat as ID(s) and pass to API.
@@ -76,7 +76,7 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
         }
 
       } catch (err: any) {
-        addLog('error', '获取即刻 API 数据失败。', err.message);
+        addLog('error', '获取大航海 API 数据失败。', err.message);
         if (!useMock) {
           addLog('warning', '提示: 请确保本地服务运行在 127.0.0.1:9802 或启用“模拟模式”进行测试。');
         }
@@ -225,7 +225,7 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
             </div>
             <div>
                 <h2 className="text-2xl font-extrabold text-slate-800">开始您的任务</h2>
-                <p className="text-slate-500 font-medium">同步即刻的视频号数据</p>
+                <p className="text-slate-500 font-medium">同步大航海的视频号数据</p>
             </div>
         </div>
 
