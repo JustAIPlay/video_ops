@@ -13,19 +13,39 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
   const [isComputing, setIsComputing] = useState(false);
   const [results, setResults] = useState<ScheduleItem[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
+  const [selectedAccount, setSelectedAccount] = useState<string>('all');
+  const [accountSearchTerm, setAccountSearchTerm] = useState<string>('');
   const [deduplicationMode, setDeduplicationMode] = useState<'all' | 'unique'>('all');
 
   // Compute unique groups for the filter dropdown
   const uniqueGroups = Array.from(new Set(results.map(r => r.groupName))).sort();
 
-  // Filter results based on selected group and deduplication mode
-  const filteredResults = (() => {
-    // 1. Group Filter
-    let list = selectedGroup === 'all' 
+  // Helper to filter by group first, used for account options and main filter
+  const getGroupFilteredResults = () => {
+    return selectedGroup === 'all' 
       ? results 
       : results.filter(r => r.groupName === selectedGroup);
+  };
 
-    // 2. Deduplication Filter
+  const groupFilteredResults = getGroupFilteredResults();
+
+  // Compute unique accounts based on GROUP FILTERED results
+  const uniqueAccounts = Array.from(new Set(groupFilteredResults.map(r => r.accountName))).sort();
+
+  // Filter results based on selected group and deduplication mode
+  const filteredResults = (() => {
+    // 1. Group Filter (already done in groupFilteredResults)
+    let list = groupFilteredResults;
+
+    // 2. Account Filter
+    if (accountSearchTerm.trim()) {
+      const term = accountSearchTerm.toLowerCase();
+      list = list.filter(r => r.accountName.toLowerCase().includes(term));
+    } else if (selectedAccount !== 'all') {
+      list = list.filter(r => r.accountName === selectedAccount);
+    }
+
+    // 3. Deduplication Filter
     if (deduplicationMode === 'unique') {
         const seen = new Set<string>();
         const uniqueList: ScheduleItem[] = [];
@@ -132,10 +152,15 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
             {results.length > 0 && (
               <div className="flex items-center gap-3">
                   <div className="flex items-center space-x-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">筛选分组</span>
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">筛选分组</span>
                     <select
                       value={selectedGroup}
-                      onChange={(e) => setSelectedGroup(e.target.value)}
+                      onChange={(e) => {
+                         setSelectedGroup(e.target.value);
+                         // Reset account selection when group changes to avoid invalid state
+                         setSelectedAccount('all');
+                         setAccountSearchTerm('');
+                      }}
                       className="bg-transparent text-sm font-bold text-slate-700 border-none focus:ring-0 cursor-pointer outline-none"
                     >
                       <option value="all">全部 ({results.length})</option>
@@ -148,7 +173,37 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
                   </div>
 
                   <div className="flex items-center space-x-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">去重展示</span>
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">筛选账号</span>
+                    <input
+                      type="text"
+                      placeholder="搜索..."
+                      value={accountSearchTerm}
+                      onChange={(e) => {
+                        setAccountSearchTerm(e.target.value);
+                        if (e.target.value) setSelectedAccount('all');
+                      }}
+                      className="bg-transparent text-sm font-bold text-slate-700 border-none focus:ring-0 outline-none w-24 placeholder:text-slate-300 placeholder:font-normal"
+                    />
+                    <div className="w-px h-4 bg-slate-200"></div>
+                    <select
+                      value={selectedAccount}
+                      onChange={(e) => {
+                        setSelectedAccount(e.target.value);
+                        setAccountSearchTerm('');
+                      }}
+                      className="bg-transparent text-sm font-bold text-slate-700 border-none focus:ring-0 cursor-pointer outline-none"
+                    >
+                      <option value="all">选择列表...</option>
+                      {uniqueAccounts.map(account => (
+                        <option key={account} value={account}>
+                          {account} ({groupFilteredResults.filter(r => r.accountName === account).length})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center space-x-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">去重展示</span>
                     <select
                       value={deduplicationMode}
                       onChange={(e) => setDeduplicationMode(e.target.value as 'all' | 'unique')}
