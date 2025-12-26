@@ -4,6 +4,7 @@ import { AppConfig, ScheduleItem, SyncLog, AIAnalysis } from '../types';
 import LogConsole from './LogConsole';
 import { fetchScheduleData } from '../services/feishuService';
 import { useAppContext } from '../contexts/AppContext';
+import { VideoScore } from '../services/aiAnalysisService';
 
 interface ScheduleViewProps {
   config: AppConfig;
@@ -12,6 +13,14 @@ interface ScheduleViewProps {
 const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
   const { mode, analysis } = useAppContext();
   const isAI = mode === 'ai';
+
+  // 根据 video_id 从 AI 分析结果中获取评分
+  const getAIScore = (videoId: string): VideoScore | undefined => {
+    if (!analysis.results || analysis.results.length === 0) return undefined;
+    // video_id 格式: "accountName_timestamp"
+    // ScheduleItem 中的 videoId 只是视频编号，需要匹配
+    return analysis.results.find(r => r.video_id.includes(videoId));
+  };
 
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [isComputing, setIsComputing] = useState(false);
@@ -497,16 +506,22 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
                                 </td>
 
                                 {/* AI 列内容 */}
-                                {isAI && (
-                                  <>
-                                    <td className="px-6 py-4 text-center">
-                                      <AIScoreBadge score={7} grade="A" />
-                                    </td>
-                                    <td className="px-6 py-4">
-                                      <AITooltip advice="建议在晚上8点发布，该时段用户活跃度最高" />
-                                    </td>
-                                  </>
-                                )}
+                                {isAI && (() => {
+                                  const aiScore = getAIScore(item.videoId);
+                                  return (
+                                    <>
+                                      <td className="px-6 py-4 text-center">
+                                        <AIScoreBadge 
+                                          score={aiScore?.overall_score || 0} 
+                                          grade={aiScore?.grade} 
+                                        />
+                                      </td>
+                                      <td className="px-6 py-4">
+                                        <AITooltip advice={aiScore?.optimization_advice || '暂无建议'} />
+                                      </td>
+                                    </>
+                                  );
+                                })()}
                             </tr>
                         ))}
                     </tbody>
@@ -537,15 +552,34 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
                       <h3 className="font-bold text-lg transition-colors duration-500 text-slate-800">AI 智能洞察</h3>
                   </div>
 
-                  <div className="flex-1 flex items-center justify-center relative z-10 m-6 rounded-2xl border-2 transition-all duration-500 bg-indigo-50 border-indigo-200 border-dashed">
-                       <div className="text-center">
-                          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 transition-colors duration-500 bg-indigo-100">
-                              <MessageSquare className="w-8 h-8 text-indigo-500" />
+                  <div className="flex-1 overflow-auto p-6 relative z-10 space-y-4">
+                    {analysis.results && analysis.results.length > 0 ? (
+                      analysis.results.map((result, idx) => (
+                        <div key={idx} className="p-4 rounded-xl border transition-all duration-300 bg-white border-indigo-200 hover:border-indigo-300">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className={`text-2xl font-bold ${
+                              result.grade === 'S' ? 'text-amber-500' :
+                              result.grade === 'A' ? 'text-emerald-500' :
+                              result.grade === 'B' ? 'text-blue-500' : 'text-slate-500'
+                            }`}>{result.grade}</span>
+                            <span className="font-bold text-slate-700">{result.overall_score}/10</span>
+                            <span className="text-xs px-2 py-1 rounded-full bg-indigo-100 text-indigo-600">
+                              病毒指数: {result.viral_index}
+                            </span>
                           </div>
-                          <p className="font-bold transition-colors duration-500 text-indigo-600">
-                            AI 分析完成，可查看优化建议
-                          </p>
-                       </div>
+                          <p className="text-sm text-slate-600">{result.optimization_advice}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8">
+                        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 bg-indigo-100">
+                          <MessageSquare className="w-8 h-8 text-indigo-500" />
+                        </div>
+                        <p className="font-bold text-indigo-600">
+                          {analysis.status === 'completed' ? '暂无分析结果' : '请先在数据同步页面进行 AI 分析'}
+                        </p>
+                      </div>
+                    )}
                   </div>
               </div>
             )}

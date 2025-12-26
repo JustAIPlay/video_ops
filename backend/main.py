@@ -14,7 +14,7 @@ if sys.platform == "win32":
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from dotenv import load_dotenv
 import uvicorn
 
@@ -35,7 +35,7 @@ app = FastAPI(
 # CORS 配置（允许前端跨域访问）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:3003"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -81,6 +81,22 @@ class HealthResponse(BaseModel):
     service: str
 
 
+class FeishuWriteRequest(BaseModel):
+    """飞书写入请求"""
+    app_id: str
+    app_secret: str
+    app_token: str
+    table_id: str
+    scores: List[VideoScore]
+    field_mapping: Dict[str, str] = {
+        "AI 评分": "ai_score",
+        "AI 评级": "ai_grade",
+        "病毒指数": "viral_index",
+        "AI 建议": "optimization_advice",
+        "分析理由": "reasoning"
+    }
+
+
 # ================== API 路由 ==================
 
 @app.get("/", response_model=dict)
@@ -88,7 +104,7 @@ async def root():
     """根路径"""
     return {
         "message": "Video Ops AI Backend",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "docs": "/docs"
     }
 
@@ -146,6 +162,42 @@ async def analyze_content(request: AIAnalysisRequest):
     except Exception as e:
         print(f"[API] 内容分析失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
+
+
+@app.post("/api/feishu/write-scores")
+async def write_scores_to_feishu(request: FeishuWriteRequest):
+    """
+    将 AI 分析结果写入飞书表格
+
+    Args:
+        request: 包含飞书凭证和分析结果的请求
+
+    Returns:
+        写入结果统计
+    """
+    try:
+        from services.feishu_writer import create_feishu_writer
+
+        # 创建飞书写入服务
+        writer = create_feishu_writer(request.app_id, request.app_secret)
+
+        # 批量更新
+        result = writer.batch_update_video_scores(
+            app_token=request.app_token,
+            table_id=request.table_id,
+            scores=request.scores,
+            field_mapping=request.field_mapping
+        )
+
+        return {
+            "status": "success",
+            "message": f"成功写入 {result['success']} 条记录",
+            "data": result
+        }
+
+    except Exception as e:
+        print(f"[API] 飞书写入失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"飞书写入失败: {str(e)}")
 
 
 @app.get("/api/analyze/status/{task_id}")

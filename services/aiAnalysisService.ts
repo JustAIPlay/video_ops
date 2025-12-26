@@ -33,6 +33,25 @@ export interface AIAnalysisResponse {
   results?: VideoScore[];
 }
 
+export interface FeishuWriteRequest {
+  app_id: string;
+  app_secret: string;
+  app_token: string;
+  table_id: string;
+  scores: VideoScore[];
+  field_mapping?: Record<string, string>;
+}
+
+export interface FeishuWriteResponse {
+  status: string;
+  message: string;
+  data?: {
+    success: number;
+    failed: number;
+    total: number;
+  };
+}
+
 // API 基础 URL
 const API_BASE_URL = 'http://127.0.0.1:8000';
 
@@ -59,6 +78,31 @@ export async function analyzeVideoContent(videos: VideoItem[]): Promise<AIAnalys
     return data;
   } catch (error) {
     console.error('[AI Analysis Service] 分析失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 将 AI 分析结果写入飞书表格
+ */
+export async function writeScoresToFeishu(request: FeishuWriteRequest): Promise<FeishuWriteResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/feishu/write-scores`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data: FeishuWriteResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('[AI Analysis Service] 飞书写入失败:', error);
     throw error;
   }
 }

@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { VideoScore } from '../services/aiAnalysisService';
 
 // ==================== 类型定义 ====================
 
@@ -15,6 +16,7 @@ interface AnalysisState {
   taskId: string | null;
   error: string | null;
   message: string;
+  results: VideoScore[];  // AI 分析结果
 }
 
 interface AppContextType {
@@ -63,6 +65,7 @@ export function AppProvider({ children }: AppProviderProps) {
     taskId: null,
     error: null,
     message: '',
+    results: [],  // 初始化为空数组
   });
 
   // ==================== 模式管理 ====================
@@ -94,6 +97,7 @@ export function AppProvider({ children }: AppProviderProps) {
       taskId: null,
       error: null,
       message: '',
+      results: [],
     });
   }, []);
 

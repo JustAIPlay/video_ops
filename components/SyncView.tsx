@@ -5,7 +5,7 @@ import { fetchPostStatistics } from '../services/jikeService';
 import { syncVideoToFeishu, mapVideoToFeishuFields, getExistingRecordsMap } from '../services/feishuService';
 import LogConsole from './LogConsole';
 import { useAppContext } from '../contexts/AppContext';
-import { analyzeVideoContent, VideoItem } from '../services/aiAnalysisService';
+import { analyzeVideoContent, writeScoresToFeishu, VideoItem } from '../services/aiAnalysisService';
 
 interface SyncViewProps {
   config: AppConfig;
@@ -40,6 +40,55 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
 
   // Helper to allow UI to repaint
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+
+  // 辅助函数：写入飞书
+  const writeScoresToFeishuAsync = async (scores: any[], accountsData: AccountData[]) => {
+    try {
+      // 从配置中获取第一个账号的飞书凭证
+      if (accountsData.length === 0) {
+        addTerminalMessage('⚠️ 没有账号数据，跳过飞书写入');
+        return;
+      }
+
+      const firstAccount = accountsData[0];
+      const mappingKey = firstAccount.group_name || firstAccount.username;
+      const targetConfig = config.accountTableMapping[mappingKey];
+
+      if (!targetConfig) {
+        addTerminalMessage('⚠️ 未配置飞书映射，跳过写入');
+        return;
+      }
+
+      // 获取飞书凭证
+      const feishuConfig = (config as any).feishuConfig || {};
+      const appId = feishuConfig.appId || '';
+      const appSecret = feishuConfig.appSecret || '';
+
+      if (!appId || !appSecret) {
+        addTerminalMessage('⚠️ 未配置飞书凭证，跳过写入');
+        return;
+      }
+
+      // 调用写入 API
+      const result = await writeScoresToFeishu({
+        app_id: appId,
+        app_secret: appSecret,
+        app_token: targetConfig.baseToken,
+        table_id: targetConfig.tableId,
+        scores: scores
+      });
+
+      if (result.status === 'success') {
+        addTerminalMessage(`✅ 成功写入飞书 ${result.data?.success || 0} 条记录`);
+      } else {
+        addTerminalMessage(`⚠️ 飞书写入失败: ${result.message}`);
+      }
+    } catch (error) {
+      console.error('[Feishu Write] 写入失败:', error);
+      addTerminalMessage('⚠️ 飞书写入异常，请查看控制台');
+    }
+  };
 
   // ============ AI 智能分析函数 ============
   const triggerAIAnalysis = async (accountsData: AccountData[]) => {
@@ -87,22 +136,35 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
         addTerminalMessage('分析完成！');
         addTerminalMessage(`✅ 成功分析 ${response.results.length} 个视频`);
 
-        // 可以将结果保存到状态中，供后续使用
-        console.log('[AI Analysis] 分析结果:', response.results);
+        // 保存结果到 context，供 ScheduleView 使用
+        setAnalysis({
+          status: 'completed',
+          currentLayer: null,
+          progress: 100,
+          message: '分析完成',
+          taskId: `ai-${Date.now()}`,
+          results: response.results
+        });
+
+        console.log('[AI Analysis] 分析结果已保存到 context:', response.results);
+
+        // 写入飞书（如果有配置）
+        addTerminalMessage('正在将分析结果写入飞书...');
+        await writeScoresToFeishuAsync(response.results, accountsData);
       } else {
         addTerminalMessage('⚠️ 分析失败: ' + response.message);
+        setAnalysis({
+          status: 'error',
+          currentLayer: null,
+          progress: 0,
+          message: '分析失败',
+          results: []
+        });
       }
 
       await sleep(800);
       // 关闭遮罩
       setShowAITerminal(false);
-      setAnalysis({
-        status: 'completed',
-        currentLayer: null,
-        progress: 100,
-        message: '分析完成',
-        taskId: `ai-${Date.now()}`
-      });
 
     } catch (error) {
       console.error('[AI Analysis] 分析失败:', error);
@@ -115,7 +177,8 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
         status: 'error',
         currentLayer: null,
         progress: 0,
-        message: '分析失败'
+        message: '分析失败',
+        results: []
       });
     }
   };
