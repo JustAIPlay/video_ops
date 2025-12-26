@@ -1,0 +1,18 @@
+{
+  "tasks": [
+    {
+      "id": "test001",
+      "title": "绿植养护小技巧，让家里充满生机",
+      "views": 5420,
+      "groupName": "ai绿植",
+      "accountName": "绿植小达人"
+    },
+    {
+      "id": "test002",
+      "title": "这本书改变了我的人生观",
+      "views": 1200,
+      "groupName": "图书",
+      "accountName": "读书笔记"
+    }
+  ]
+}

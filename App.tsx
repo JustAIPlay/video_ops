@@ -6,12 +6,14 @@ import ScheduleView from './components/ScheduleView';
 import { AppConfig } from './types';
 import { DEFAULT_CONFIG } from './constants';
 import { Calendar } from 'lucide-react';
+import { AppProvider } from './contexts/AppContext';
+import './styles/theme-ai.css';
 
 const STORAGE_KEY = 'JIKE_OPS_CONFIG_V1';
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'sync' | 'settings' | 'schedule'>('sync');
-  
+
   // Initialize config from localStorage or fallback to default
   const [config, setConfig] = useState<AppConfig>(() => {
     try {
@@ -46,6 +48,14 @@ const App: React.FC = () => {
       {activeTab === 'settings' && <SettingsView config={config} onSave={handleConfigSave} />}
       {activeTab === 'schedule' && <ScheduleView config={config} />}
     </Layout>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <AppProvider>
+      <AppContent />
+    </AppProvider>
   );
 };
 

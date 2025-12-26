@@ -1,18 +1,28 @@
-import React, { useState } from 'react';
-import { Play, Loader2, Calendar, Users, Rocket, CloudRain, ToggleLeft, ToggleRight, CheckCircle2 } from 'lucide-react';
+import React, { useState, useMemo, useCallback, memo, useRef, useEffect } from 'react';
+import { Play, Loader2, Calendar, Users, Rocket, CloudRain, ToggleLeft, ToggleRight, CheckCircle2, Sparkles, Terminal } from 'lucide-react';
 import { SyncLog, AppConfig, AccountData } from '../types';
 import { fetchPostStatistics } from '../services/jikeService';
 import { syncVideoToFeishu, mapVideoToFeishuFields, getExistingRecordsMap } from '../services/feishuService';
 import LogConsole from './LogConsole';
+import { useAppContext } from '../contexts/AppContext';
+import { analyzeVideoContent, VideoItem } from '../services/aiAnalysisService';
 
 interface SyncViewProps {
   config: AppConfig;
 }
 
 const SyncView: React.FC<SyncViewProps> = ({ config }) => {
+  const { mode, analysis, setAnalysis } = useAppContext();
+  const isAI = mode === 'ai';
+
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [useMock, setUseMock] = useState(false);
+
+  // AI 分析终端状态
+  const [showAITerminal, setShowAITerminal] = useState(false);
+  const messagesRef = useRef<string[]>([]);
+  const [messageUpdateTrigger, setMessageUpdateTrigger] = useState(0);
   
   // Filters
   const [userIds, setUserIds] = useState('');
@@ -30,6 +40,129 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
 
   // Helper to allow UI to repaint
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  // ============ AI 智能分析函数 ============
+  const triggerAIAnalysis = async (accountsData: AccountData[]) => {
+    // 重置消息
+    messagesRef.current = [];
+    setMessageUpdateTrigger(0);
+
+    // 显示遮罩
+    setShowAITerminal(true);
+    setAnalysis({ status: 'analyzing', currentLayer: 'content', progress: 0, message: '正在启动AI分析...' });
+
+    try {
+      // 添加终端消息
+      const addTerminalMessage = (msg: string) => {
+        messagesRef.current.push(msg);
+        setMessageUpdateTrigger(prev => prev + 1);
+      };
+
+      addTerminalMessage('正在连接AI分析引擎...');
+
+      // 收集所有视频数据
+      const allVideos: VideoItem[] = [];
+      for (const account of accountsData) {
+        for (const video of account.videos) {
+          allVideos.push({
+            video_id: `${account.username}_${video.createTime}`,
+            title: video.name,
+            description: video.name,
+            views: 0, // 可以从 video 中获取实际数据
+            account_name: account.username,
+            group_name: account.group_name || '',
+          });
+        }
+      }
+
+      addTerminalMessage(`提取到 ${allVideos.length} 个视频样本`);
+
+      // 调用后端 AI 分析 API
+      addTerminalMessage('正在分析内容质量评分...');
+      setAnalysis({ status: 'analyzing', currentLayer: 'content', progress: 50, message: 'AI 分析中...' });
+
+      const response = await analyzeVideoContent(allVideos);
+
+      if (response.status === 'success' && response.results) {
+        addTerminalMessage('分析完成！');
+        addTerminalMessage(`✅ 成功分析 ${response.results.length} 个视频`);
+
+        // 可以将结果保存到状态中，供后续使用
+        console.log('[AI Analysis] 分析结果:', response.results);
+      } else {
+        addTerminalMessage('⚠️ 分析失败: ' + response.message);
+      }
+
+      await sleep(800);
+      // 关闭遮罩
+      setShowAITerminal(false);
+      setAnalysis({
+        status: 'completed',
+        currentLayer: null,
+        progress: 100,
+        message: '分析完成',
+        taskId: `ai-${Date.now()}`
+      });
+
+    } catch (error) {
+      console.error('[AI Analysis] 分析失败:', error);
+      messagesRef.current.push('❌ AI 分析失败: ' + (error as Error).message);
+      setMessageUpdateTrigger(prev => prev + 1);
+
+      await sleep(2000);
+      setShowAITerminal(false);
+      setAnalysis({
+        status: 'error',
+        currentLayer: null,
+        progress: 0,
+        message: '分析失败'
+      });
+    }
+  };
+
+  // ============ AI 终端遮罩组件 ============
+  // 主遮罩组件 - 只在 showAITerminal 变化时渲染
+  const AITerminalOverlay = useMemo(() => {
+    // 闭包捕获当前的 ref 值
+    const currentMessages = messagesRef.current;
+
+    return showAITerminal ? (
+      <div className="ai-hud-overlay">
+        <div className="ai-hud-content">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-400 to-violet-400 flex items-center justify-center">
+              <Terminal className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-slate-800">AI 智能分析引擎</h3>
+              <p className="text-indigo-600 text-sm">正在深度分析您的视频数据...</p>
+            </div>
+          </div>
+
+          <div className="terminal-code-scroll h-64 overflow-y-auto">
+            {currentMessages.map((msg, i) => (
+              <div key={i} className="mb-1">
+                <span className="text-emerald-400">$</span> {msg}
+              </div>
+            ))}
+            {currentMessages.length > 0 && (
+              <div className="inline-block w-2 h-4 bg-indigo-400 animate-pulse ml-1" />
+            )}
+          </div>
+
+          <div className="mt-6">
+            <div className="ai-progress-bar">
+              <div className="ai-progress-fill" style={{ width: `${analysis.progress || 0}%` }} />
+            </div>
+            <div className="flex justify-between mt-2 text-xs text-indigo-600">
+              <span>{analysis.message || '初始化...'}</span>
+              <span>{analysis.progress || 0}%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : null;
+  }, [showAITerminal, messageUpdateTrigger, analysis.progress, analysis.message]);
 
   const handleStartSync = async () => {
     if (isSyncing) return;
@@ -207,6 +340,12 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
 
       addLog('success', '同步完成。', `已处理: ${totalProcessed} | 新增: ${totalCreated} | 更新: ${totalUpdated}`);
 
+      // ============ AI 智能模式拦截器 ============
+      if (isAI) {
+        addLog('info', '🤖 AI 智能模式已激活，开始分析数据...');
+        await triggerAIAnalysis(accountsData);
+      }
+
     } catch (e: any) {
       console.error("[DEBUG] SyncView: Fatal Error", e);
       addLog('error', '同步执行期间发生严重错误。', e.message);
@@ -216,20 +355,37 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
   };
 
   return (
-    <div className="flex flex-col h-full p-4 lg:p-8 gap-6 lg:gap-8 max-w-[1600px] mx-auto w-full">
+    <div className={`flex flex-col h-full p-4 lg:p-8 gap-6 lg:gap-8 max-w-[1600px] mx-auto w-full relative transition-all duration-500 ${
+      isAI ? 'ai-mode-container' : ''
+    }`}>
+      {/* AI 终端遮罩 */}
+      {AITerminalOverlay}
+
       {/* Top Header Card */}
-      <div className="shrink-0 flex flex-col md:flex-row justify-between items-center bg-white rounded-3xl p-6 shadow-xl shadow-slate-100 border border-white">
+      <div className={`shrink-0 flex flex-col md:flex-row justify-between items-center rounded-3xl p-6 shadow-xl border transition-all duration-500 ${
+        isAI
+          ? 'bg-white border-indigo-200 shadow-indigo-100'
+          : 'bg-white border-white shadow-slate-100'
+      }`}>
         <div className="flex items-center gap-6 mb-4 md:mb-0">
             <div className="w-16 h-16 bg-gradient-to-tr from-[#FFD166] to-[#F78C6B] rounded-2xl flex items-center justify-center shadow-lg shadow-orange-100 rotate-6 transform transition-transform hover:rotate-12">
                 <Rocket className="w-8 h-8 text-white" fill="white" />
             </div>
             <div>
-                <h2 className="text-2xl font-extrabold text-slate-800">开始您的任务</h2>
-                <p className="text-slate-500 font-medium">同步大航海的视频号数据</p>
+                <h2 className={`text-2xl font-extrabold transition-colors duration-500 ${
+                  isAI ? 'text-slate-800' : 'text-slate-800'
+                }`}>开始您的任务</h2>
+                <p className={`font-medium transition-colors duration-500 ${
+                  isAI ? 'text-slate-600' : 'text-slate-500'
+                }`}>同步大航海的视频号数据 {isAI && <Sparkles className="w-4 h-4 inline ml-2 text-indigo-500" />}</p>
             </div>
         </div>
 
-        <div className="flex items-center gap-6 bg-slate-50 px-6 py-3 rounded-2xl border border-slate-100">
+        <div className={`flex items-center gap-6 px-6 py-3 rounded-2xl border transition-all duration-500 ${
+          isAI
+            ? 'bg-indigo-50 border-indigo-200'
+            : 'bg-slate-50 border-slate-100'
+        }`}>
              <label className="flex items-center gap-3 cursor-pointer select-none">
                 <span className={`text-sm font-bold transition-colors ${!useMock ? 'text-slate-400' : 'text-[#8C7CF0]'}`}>模拟数据</span>
                 <div onClick={() => setUseMock(!useMock)} className="relative">
@@ -247,73 +403,117 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
         
         {/* Left Column: Controls (Col 2) */}
         <div className="w-full xl:w-[400px] flex flex-col gap-6 shrink-0">
-          
-          {/* Card 1: Filters */}
-          <div className="bg-white p-6 rounded-3xl shadow-xl shadow-slate-100 border border-white relative overflow-hidden">
-             {/* Decorative blob */}
-             <div className="absolute -right-10 -top-10 w-32 h-32 bg-violet-50 rounded-full blur-2xl opacity-80 pointer-events-none"></div>
 
-            <div className="flex items-center gap-3 mb-6 relative z-10">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center">
-                  <Users className="w-5 h-5" />
+          {/* Card 1: Filters - 隐藏在AI模式下 */}
+          {!isAI && (
+            <div className={`p-6 rounded-3xl shadow-xl border relative overflow-hidden transition-all duration-500 ${
+              isAI
+                ? 'bg-white border-indigo-200 shadow-indigo-100'
+                : 'bg-white border-white shadow-slate-100'
+            }`}>
+               {/* Decorative blob */}
+               <div className={`absolute -right-10 -top-10 w-32 h-32 rounded-full blur-2xl opacity-80 pointer-events-none transition-colors duration-500 ${
+                 isAI ? 'bg-indigo-200' : 'bg-violet-50'
+               }`}></div>
+
+              <div className="flex items-center gap-3 mb-6 relative z-10">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors duration-500 ${
+                  isAI ? 'bg-indigo-100 text-indigo-600' : 'bg-blue-50 text-blue-500'
+                }`}>
+                    <Users className="w-5 h-5" />
+                </div>
+                <h3 className={`font-bold text-lg transition-colors duration-500 ${
+                  isAI ? 'text-slate-800' : 'text-slate-800'
+                }`}>账号筛选</h3>
               </div>
-              <h3 className="font-bold text-lg text-slate-800">账号筛选</h3>
-            </div>
-            
-            <div className="space-y-3 relative z-10">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">视频号账号</label>
-              <input 
-                type="text" 
-                placeholder="（留空则全选）"
-                value={userIds}
-                onChange={(e) => setUserIds(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border-none rounded-xl text-slate-600 font-medium placeholder:text-slate-300 focus:ring-2 focus:ring-[#8C7CF0] focus:bg-white transition-all outline-none"
-              />
-            </div>
-          </div>
 
-          {/* Card 2: Date Range */}
-          <div className="bg-white p-6 rounded-3xl shadow-xl shadow-slate-100 border border-white relative overflow-hidden">
-            {/* Decorative blob */}
-            <div className="absolute -left-10 bottom-0 w-32 h-32 bg-pink-50 rounded-full blur-2xl opacity-80 pointer-events-none"></div>
-
-            <div className="flex items-center gap-3 mb-6 relative z-10">
-              <div className="w-10 h-10 rounded-xl bg-pink-50 text-pink-500 flex items-center justify-center">
-                  <Calendar className="w-5 h-5" />
-              </div>
-              <h3 className="font-bold text-lg text-slate-800">时间范围</h3>
-            </div>
-
-            <div className="space-y-5 relative z-10">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">开始日期</label>
-                <input 
-                  type="date" 
-                  value={dateRange.start}
-                  onChange={(e) => setDateRange(prev => ({...prev, start: e.target.value}))}
-                  className="w-full px-4 py-3 bg-slate-50 border-none rounded-xl text-slate-600 font-medium focus:ring-2 focus:ring-[#8C7CF0] focus:bg-white transition-all outline-none"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">结束日期</label>
-                <input 
-                  type="date" 
-                  value={dateRange.end}
-                  onChange={(e) => setDateRange(prev => ({...prev, end: e.target.value}))}
-                  className="w-full px-4 py-3 bg-slate-50 border-none rounded-xl text-slate-600 font-medium focus:ring-2 focus:ring-[#8C7CF0] focus:bg-white transition-all outline-none"
+              <div className="space-y-3 relative z-10">
+                <label className={`text-xs font-bold uppercase tracking-wider ml-1 transition-colors duration-500 ${
+                  isAI ? 'text-indigo-600' : 'text-slate-400'
+                }`}>视频号账号</label>
+                <input
+                  type="text"
+                  placeholder="（留空则全选）"
+                  value={userIds}
+                  onChange={(e) => setUserIds(e.target.value)}
+                  className={`w-full px-4 py-3 border-none rounded-xl font-medium transition-all duration-500 outline-none ${
+                    isAI
+                      ? 'bg-indigo-50 text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-400 focus:bg-white'
+                      : 'bg-slate-50 text-slate-600 placeholder:text-slate-300 focus:ring-2 focus:ring-[#8C7CF0] focus:bg-white'
+                  }`}
                 />
               </div>
             </div>
-          </div>
+          )}
+
+          {/* Card 2: Date Range - 隐藏在AI模式下 */}
+          {!isAI && (
+            <div className={`p-6 rounded-3xl shadow-xl border relative overflow-hidden transition-all duration-500 ${
+              isAI
+                ? 'bg-white border-indigo-200 shadow-indigo-100'
+                : 'bg-white border-white shadow-slate-100'
+            }`}>
+              {/* Decorative blob */}
+              <div className={`absolute -left-10 bottom-0 w-32 h-32 rounded-full blur-2xl opacity-80 pointer-events-none transition-colors duration-500 ${
+                isAI ? 'bg-violet-200' : 'bg-pink-50'
+              }`}></div>
+
+              <div className="flex items-center gap-3 mb-6 relative z-10">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors duration-500 ${
+                  isAI ? 'bg-violet-100 text-violet-600' : 'bg-pink-50 text-pink-500'
+                }`}>
+                    <Calendar className="w-5 h-5" />
+                </div>
+                <h3 className={`font-bold text-lg transition-colors duration-500 ${
+                  isAI ? 'text-slate-800' : 'text-slate-800'
+                }`}>时间范围</h3>
+              </div>
+
+              <div className="space-y-5 relative z-10">
+                <div className="space-y-2">
+                  <label className={`text-xs font-bold uppercase tracking-wider ml-1 transition-colors duration-500 ${
+                    isAI ? 'text-indigo-600' : 'text-slate-400'
+                  }`}>开始日期</label>
+                  <input
+                    type="date"
+                    value={dateRange.start}
+                    onChange={(e) => setDateRange(prev => ({...prev, start: e.target.value}))}
+                    className={`w-full px-4 py-3 border-none rounded-xl font-medium transition-all duration-500 outline-none ${
+                      isAI
+                        ? 'bg-indigo-50 text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-400 focus:bg-white'
+                        : 'bg-slate-50 text-slate-600 placeholder:text-slate-300 focus:ring-2 focus:ring-[#8C7CF0] focus:bg-white'
+                    }`}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className={`text-xs font-bold uppercase tracking-wider ml-1 transition-colors duration-500 ${
+                    isAI ? 'text-indigo-600' : 'text-slate-400'
+                  }`}>结束日期</label>
+                  <input
+                    type="date"
+                    value={dateRange.end}
+                    onChange={(e) => setDateRange(prev => ({...prev, end: e.target.value}))}
+                    className={`w-full px-4 py-3 border-none rounded-xl font-medium transition-all duration-500 outline-none ${
+                      isAI
+                        ? 'bg-indigo-50 text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-400 focus:bg-white'
+                        : 'bg-slate-50 text-slate-600 placeholder:text-slate-300 focus:ring-2 focus:ring-[#8C7CF0] focus:bg-white'
+                    }`}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Action Button */}
           <button
             onClick={handleStartSync}
             disabled={isSyncing}
             className={`group relative overflow-hidden w-full py-5 rounded-2xl font-bold text-lg text-white shadow-xl transition-all duration-300 transform active:scale-95 flex items-center justify-center gap-3 ${
-            isSyncing 
-                ? 'bg-slate-300 shadow-none cursor-not-allowed' 
-                : 'bg-gradient-to-r from-[#8C7CF0] to-[#C6B9FF] shadow-[#8C7CF0]/30 hover:shadow-[#8C7CF0]/50 hover:-translate-y-1'
+            isSyncing
+                ? 'bg-slate-300 shadow-none cursor-not-allowed'
+                : isAI
+                  ? 'bg-gradient-to-r from-indigo-400 to-violet-400 shadow-indigo-200 hover:shadow-indigo-300 hover:-translate-y-1'
+                  : 'bg-gradient-to-r from-[#8C7CF0] to-[#C6B9FF] shadow-[#8C7CF0]/30 hover:shadow-[#8C7CF0]/50 hover:-translate-y-1'
             }`}
           >
             {/* Button Shine Effect */}
@@ -322,7 +522,7 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
             {isSyncing ? (
                 <>
                     <Loader2 className="w-6 h-6 animate-spin" />
-                    <span>正在同步中...</span>
+                    <span>正在同步中...{isAI && ' (AI分析将在同步完成后启动)'}</span>
                 </>
             ) : (
                 <>
@@ -338,6 +538,23 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
           <LogConsole logs={logs} />
         </div>
       </div>
+
+      {/* AI 分析完成提示 */}
+      {isAI && analysis.status === 'completed' && (
+        <div className={`rounded-2xl p-4 border transition-all duration-500 ${
+          isAI
+            ? 'bg-emerald-50 border-emerald-200'
+            : 'bg-emerald-50 border-emerald-200'
+        }`}>
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            <span className="font-bold text-emerald-800">AI 分析完成！</span>
+            <span className="text-sm ml-2 text-emerald-600">
+              智能分析已生成优化建议，请在发布排期页面查看
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
