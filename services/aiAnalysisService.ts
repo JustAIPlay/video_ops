@@ -9,21 +9,31 @@ export interface VideoItem {
   account_name: string;
   group_name?: string;
   publish_time?: string;
+  // 互动数据
+  like_count?: number;
+  comment_count?: number;
+  share_count?: number;
+  fav_count?: number;
+  forward_agg_count?: number;
+  // 播放数据
+  full_play_rate?: string;
+  avg_play_time?: string;
 }
 
 export interface VideoScore {
   video_id: string;
-  overall_score: number;
+  overall_score: number;  // 1-10
   dimension_scores: {
-    content_quality: number;
-    timing: number;
-    account_fit: number;
+    content_quality: number;  // 1-10
+    timing: number;  // 1-10
+    engagement: number;  // 1-10
+    viral_potential: number;  // 1-10
   };
   grade: 'S' | 'A' | 'B' | 'C';
   optimization_advice: string;
   reasoning: string;
   suggested_publish_time?: string;
-  viral_index: number;
+  viral_index: number;  // 0-1
 }
 
 export interface AIAnalysisResponse {
@@ -53,7 +63,7 @@ export interface FeishuWriteResponse {
 }
 
 // API 基础 URL
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = 'http://127.0.0.1:8008';
 
 /**
  * 分析视频内容质量
@@ -87,16 +97,38 @@ export async function analyzeVideoContent(videos: VideoItem[]): Promise<AIAnalys
  */
 export async function writeScoresToFeishu(request: FeishuWriteRequest): Promise<FeishuWriteResponse> {
   try {
+    // 转换 overall_score 为整数（后端要求 int 类型）
+    const scores = request.scores.map(score => ({
+      ...score,
+      overall_score: Math.round(score.overall_score)
+    }));
+
+    const requestBody = {
+      app_id: request.app_id,
+      app_secret: request.app_secret,
+      app_token: request.app_token,
+      table_id: request.table_id,
+      scores: scores,
+      field_mapping: request.field_mapping
+    };
+
+    console.log('[Feishu Write] 请求数据:', JSON.stringify(requestBody, null, 2));
+    console.log('[Feishu Write] 第一个 score:', JSON.stringify(scores[0], null, 2));
+
     const response = await fetch(`${API_BASE_URL}/api/feishu/write-scores`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestBody),
     });
 
+    console.log('[Feishu Write] 响应状态:', response.status);
+
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const errorText = await response.text();
+      console.error('[Feishu Write] 错误响应:', errorText);
+      throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
     }
 
     const data: FeishuWriteResponse = await response.json();

@@ -46,81 +46,64 @@ class FeishuWriter:
             app_token: 飞书 Base token
             table_id: 数据表 ID
             scores: 视频评分列表
-            field_mapping: 字段映射，例如：
-                {
-                    "AI 评分": "ai_score",
-                    "AI 评级": "ai_grade",
-                    "病毒指数": "viral_index",
-                    "AI 建议": "optimization_advice",
-                    "分析理由": "reasoning"
-                }
+            field_mapping: 字段映射
 
         Returns:
             更新结果统计
         """
+        print(f"[FeishuWriter] 开始批量更新，记录数: {len(scores)}")
+
         # 构建字段名到飞书字段 ID 的映射
-        # 首先获取表格字段信息
         field_id_map = self._get_field_id_map(app_token, table_id, field_mapping)
 
         if not field_id_map:
             return {"success": 0, "failed": len(scores), "error": "无法获取字段映射"}
 
-        # 批量更新（每次最多 500 条）
-        BATCH_SIZE = 500
+        # 批量更新
         success_count = 0
         failed_count = 0
 
-        for i in range(0, len(scores), BATCH_SIZE):
-            batch = scores[i:i + BATCH_SIZE]
+        for score in scores:
+            try:
+                # 先根据 video_id 查找对应的记录
+                record_id = self._find_record_by_video_id(
+                    app_token, table_id, score.video_id
+                )
 
-            # 查找记录并更新
-            for score in batch:
-                try:
-                    # 先根据 video_id 查找对应的记录
-                    record_id = self._find_record_by_video_id(
-                        app_token, table_id, score.video_id
-                    )
-
-                    if record_id:
-                        # 更新记录
-                        if self._update_record(
-                            app_token, table_id, record_id, score, field_id_map
-                        ):
-                            success_count += 1
-                        else:
-                            failed_count += 1
+                if record_id:
+                    # 更新记录
+                    if self._update_record(
+                        app_token, table_id, record_id, score, field_id_map
+                    ):
+                        success_count += 1
+                        print(f"[FeishuWriter] 成功更新: {score.video_id}")
                     else:
-                        # 未找到记录，跳过或创建新记录（这里选择跳过）
                         failed_count += 1
-                        print(f"[FeishuWriter] 未找到记录: {score.video_id}")
-
-                except Exception as e:
+                        print(f"[FeishuWriter] 更新失败: {score.video_id}")
+                else:
+                    # 未找到记录
                     failed_count += 1
-                    print(f"[FeishuWriter] 更新失败 {score.video_id}: {e}")
+                    print(f"[FeishuWriter] 未找到记录: {score.video_id}")
 
-        return {
+            except Exception as e:
+                failed_count += 1
+                print(f"[FeishuWriter] 更新异常 {score.video_id}: {e}")
+
+        result = {
             "success": success_count,
             "failed": failed_count,
             "total": len(scores)
         }
+        print(f"[FeishuWriter] 批量更新完成: {result}")
+        return result
 
     def _get_field_id_map(
         self,
         app_token: str,
         table_id: str,
-        field_names: List[str]
+        field_mapping: Dict[str, str]
     ) -> Dict[str, str]:
-        """
-        获取字段名到字段 ID 的映射
-
-        Args:
-            app_token: Base token
-            table_id: 表 ID
-            field_names: 需要获取的字段名列表
-
-        Returns:
-            字段名 -> 字段 ID 的映射
-        """
+        """获取字段名到字段 ID 的映射"""
         try:
             request = ListAppTableFieldRequest.builder() \
                 .app_token(app_token) \
@@ -134,10 +117,13 @@ class FeishuWriter:
                 return {}
 
             field_map = {}
+            target_field_names = list(field_mapping.keys())
+
             for field in response.data.items:
-                if field.field_name in field_names:
+                if field.field_name in target_field_names:
                     field_map[field.field_name] = field.field_id
 
+            print(f"[FeishuWriter] 字段映射: {field_map}")
             return field_map
 
         except Exception as e:
@@ -150,17 +136,7 @@ class FeishuWriter:
         table_id: str,
         video_id: str
     ) -> str | None:
-        """
-        根据视频 ID 查找记录 ID
-
-        Args:
-            app_token: Base token
-            table_id: 表 ID
-            video_id: 视频 ID
-
-        Returns:
-            记录 ID，未找到返回 None
-        """
+        """根据视频 ID 查找记录 ID"""
         try:
             # 使用搜索 API
             request = SearchAppTableRecordRequest.builder() \
@@ -175,7 +151,7 @@ class FeishuWriter:
                             .value([video_id])
                             .build()
                     ])
-                    .build())
+                    .build()) \
                 .build()
 
             response = self.client.bitable.v1.app_table_record.search(request)
@@ -197,19 +173,7 @@ class FeishuWriter:
         score: VideoScore,
         field_id_map: Dict[str, str]
     ) -> bool:
-        """
-        更新单条记录
-
-        Args:
-            app_token: Base token
-            table_id: 表 ID
-            record_id: 记录 ID
-            score: 视频评分数据
-            field_id_map: 字段名 -> 字段 ID 映射
-
-        Returns:
-            是否更新成功
-        """
+        """更新单条记录"""
         try:
             # 构建更新数据
             fields = {}
@@ -255,14 +219,5 @@ class FeishuWriter:
 
 # 便捷函数
 def create_feishu_writer(app_id: str, app_secret: str) -> FeishuWriter:
-    """
-    创建飞书写入服务实例
-
-    Args:
-        app_id: 飞书应用 ID
-        app_secret: 飞书应用密钥
-
-    Returns:
-        FeishuWriter 实例
-    """
+    """创建飞书写入服务实例"""
     return FeishuWriter(app_id, app_secret)

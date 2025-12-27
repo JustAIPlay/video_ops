@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict
 from dotenv import load_dotenv
 import uvicorn
+import traceback
 
 from services.matrix_agent import MatrixAdvisor
 from services.agents.content_agent import ContentQualityAgent
@@ -31,6 +32,15 @@ app = FastAPI(
     description="视频运营智能分析 API 服务",
     version="2.0.0"
 )
+
+
+# 全局异常处理器
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """捕获所有未处理的异常"""
+    print(f"[Global Exception Handler] 捕获异常: {type(exc).__name__}: {str(exc)}")
+    traceback.print_exc()
+    raise HTTPException(status_code=500, detail=f"服务器错误: {str(exc)}")
 
 # CORS 配置（允许前端跨域访问）
 app.add_middleware(
@@ -139,7 +149,7 @@ async def analyze_schedule(request: AnalyzeRequest):
 
 # ================== 新增 AI 分析接口 ==================
 
-@app.post("/api/analyze/content", response_model=AIAnalysisResponse)
+@app.post("/api/analyze/content")
 async def analyze_content(request: AIAnalysisRequest):
     """
     视频内容层分析（新接口）
@@ -147,20 +157,26 @@ async def analyze_content(request: AIAnalysisRequest):
     分析视频内容质量，提供评分、建议和病毒指数
     """
     try:
+        print(f"[API] 收到分析请求，视频数量: {len(request.videos)}")
+
         # 转换为字典列表
         videos = [video.model_dump() for video in request.videos]
+        print(f"[API] 第一个视频数据: {videos[0] if videos else 'None'}")
 
         # 批量分析
         results = content_agent.batch_analyze(videos)
+        print(f"[API] 分析完成，结果数量: {len(results)}")
 
-        return AIAnalysisResponse(
-            status="success",
-            message="分析完成",
-            results=[VideoScore(**r) for r in results]
-        )
+        # 直接返回字典，避免 VideoScore 验证问题
+        return {
+            "status": "success",
+            "message": "分析完成",
+            "results": results
+        }
 
     except Exception as e:
         print(f"[API] 内容分析失败: {str(e)}")
+        traceback.print_exc()  # 打印完整错误堆栈
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
 
 
@@ -176,6 +192,13 @@ async def write_scores_to_feishu(request: FeishuWriteRequest):
         写入结果统计
     """
     try:
+        print(f"[API] 收到飞书写入请求")
+        print(f"[API] app_id: {request.app_id[:10]}...")
+        print(f"[API] app_token: {request.app_token}")
+        print(f"[API] table_id: {request.table_id}")
+        print(f"[API] scores 数量: {len(request.scores)}")
+        print(f"[API] 第一个 score: {request.scores[0] if request.scores else 'None'}")
+
         from services.feishu_writer import create_feishu_writer
 
         # 创建飞书写入服务
@@ -189,6 +212,8 @@ async def write_scores_to_feishu(request: FeishuWriteRequest):
             field_mapping=request.field_mapping
         )
 
+        print(f"[API] 飞书写入完成: {result}")
+
         return {
             "status": "success",
             "message": f"成功写入 {result['success']} 条记录",
@@ -197,6 +222,7 @@ async def write_scores_to_feishu(request: FeishuWriteRequest):
 
     except Exception as e:
         print(f"[API] 飞书写入失败: {str(e)}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"飞书写入失败: {str(e)}")
 
 
@@ -236,3 +262,4 @@ if __name__ == "__main__":
         port=port,
         reload=True
     )
+

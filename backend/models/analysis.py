@@ -18,6 +18,15 @@ class VideoItem(BaseModel):
     publish_time: Optional[str] = Field(None, description="发布时间")
     account_name: str = Field(..., description="所属账号名称")
     group_name: Optional[str] = Field(None, description="所属分组名称")
+    # 互动数据
+    like_count: Optional[int] = Field(None, description="点赞数")
+    comment_count: Optional[int] = Field(None, description="评论数")
+    share_count: Optional[int] = Field(None, description="分享数")
+    fav_count: Optional[int] = Field(None, description="推荐/收藏数")
+    forward_agg_count: Optional[int] = Field(None, description="转发聊天和朋友圈数")
+    # 播放数据
+    full_play_rate: Optional[str] = Field(None, description="完播率 (如: 85.50%)")
+    avg_play_time: Optional[str] = Field(None, description="平均播放时长 (如: 15.30秒)")
 
 
 class AccountContext(BaseModel):
@@ -34,12 +43,12 @@ class VideoScore(BaseModel):
     """视频评分结果"""
     video_id: str = Field(..., description="视频ID")
     overall_score: int = Field(..., ge=1, le=10, description="综合评分 (1-10)")
-    dimension_scores: dict = Field(default_factory=dict, description="各维度评分")
+    dimension_scores: dict = Field(default_factory=dict, description="各维度评分 (1-10): content_quality, timing, engagement, viral_potential")
     grade: str = Field(..., description="评级 (S/A/B/C)")
     optimization_advice: str = Field(..., description="优化建议")
     reasoning: str = Field(..., description="分析推理过程")
     suggested_publish_time: Optional[str] = Field(None, description="建议发布时间")
-    viral_index: float = Field(0.0, ge=0, le=100, description="病毒传播指数 (0-100)")
+    viral_index: float = Field(0.0, ge=0, le=1, description="病毒传播指数 (0-1)")
 
 
 # ==================== API 请求/响应模型 ====================

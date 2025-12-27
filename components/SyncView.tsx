@@ -2,10 +2,11 @@ import React, { useState, useMemo, useCallback, memo, useRef, useEffect } from '
 import { Play, Loader2, Calendar, Users, Rocket, CloudRain, ToggleLeft, ToggleRight, CheckCircle2, Sparkles, Terminal } from 'lucide-react';
 import { SyncLog, AppConfig, AccountData } from '../types';
 import { fetchPostStatistics } from '../services/jikeService';
-import { syncVideoToFeishu, mapVideoToFeishuFields, getExistingRecordsMap } from '../services/feishuService';
+import { syncVideoToFeishu, mapVideoToFeishuFields, getExistingRecordsMap, getAccessToken, resolveBaseToken } from '../services/feishuService';
 import LogConsole from './LogConsole';
 import { useAppContext } from '../contexts/AppContext';
 import { analyzeVideoContent, writeScoresToFeishu, VideoItem } from '../services/aiAnalysisService';
+import { DEMO_CONFIG, isGroupAllowedInAI, getDemoHint, getMaxAccountsToAnalyze } from '../config/demo';
 
 interface SyncViewProps {
   config: AppConfig;
@@ -23,6 +24,12 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
   const [showAITerminal, setShowAITerminal] = useState(false);
   const messagesRef = useRef<string[]>([]);
   const [messageUpdateTrigger, setMessageUpdateTrigger] = useState(0);
+
+  // 添加终端消息
+  const addTerminalMessage = useCallback((msg: string) => {
+    messagesRef.current.push(msg);
+    setMessageUpdateTrigger(prev => prev + 1);
+  }, []);
   
   // Filters
   const [userIds, setUserIds] = useState('');
@@ -42,50 +49,163 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 
-  // 辅助函数：写入飞书
+  // 辅助函数：写入 AI 分析结果到飞书（使用现有飞书服务）
   const writeScoresToFeishuAsync = async (scores: any[], accountsData: AccountData[]) => {
     try {
-      // 从配置中获取第一个账号的飞书凭证
+      addLog('info', '准备写入 AI 分析结果到飞书...');
+
       if (accountsData.length === 0) {
+        addLog('warning', '没有账号数据，跳过飞书写入');
         addTerminalMessage('⚠️ 没有账号数据，跳过飞书写入');
         return;
       }
 
-      const firstAccount = accountsData[0];
-      const mappingKey = firstAccount.group_name || firstAccount.username;
-      const targetConfig = config.accountTableMapping[mappingKey];
+      let successCount = 0;
+      let failedCount = 0;
 
-      if (!targetConfig) {
-        addTerminalMessage('⚠️ 未配置飞书映射，跳过写入');
-        return;
+      // 按分组处理每个账号的视频
+      for (const account of accountsData) {
+        const mappingKey = account.group_name || account.username;
+        const targetConfig = config.accountTableMapping[mappingKey];
+
+        if (!targetConfig) {
+          addLog('warning', `[跳过] 账号/分组 "${mappingKey}" 未配置飞书表格映射`);
+          continue;
+        }
+
+        // 获取该账号相关的评分结果
+        const accountScores = scores.filter(s =>
+          s.video_id.startsWith(account.username + '_')
+        );
+
+        if (accountScores.length === 0) {
+          addLog('info', `账号 ${account.username} 没有对应的 AI 分析结果`);
+          continue;
+        }
+
+        addLog('info', `处理账号: ${account.username}，AI 分析结果: ${accountScores.length} 条`);
+
+        // 获取现有记录映射（用于匹配）
+        const timestamps = account.videos.map(v =>
+          v.create_time ? v.create_time * 1000 : new Date(v.createTime).getTime()
+        );
+        const minTime = Math.min(...timestamps) - 60000;
+        const maxTime = Math.max(...timestamps) + 60000;
+
+        const existingRecordsMap = await getExistingRecordsMap(
+          config,
+          mappingKey,
+          account.username,
+          minTime,
+          maxTime
+        );
+
+        addLog('info', `发现 ${existingRecordsMap.size} 条已有记录`);
+
+        // 获取飞书 token
+        const token = await getAccessToken(config.feishuAppId, config.feishuAppSecret);
+        const baseToken = await resolveBaseToken(targetConfig.baseToken, token);
+
+        // 处理每个评分结果
+        for (const score of accountScores) {
+          try {
+            // 从原始视频中找到对应的视频数据，获取正确的时间戳
+            // video_id 格式: "账号名_createTime字符串"
+            // 我们需要在 account.videos 中找到匹配的视频
+            const matchingVideo = account.videos.find(v => {
+              const videoId = `${account.username}_${v.createTime}`;
+              return videoId === score.video_id;
+            });
+
+            if (!matchingVideo) {
+              addLog('warning', `未找到对应视频数据: ${score.video_id}`);
+              failedCount++;
+              continue;
+            }
+
+            // 使用视频的实际时间戳进行匹配
+            const rawPubTime = matchingVideo.create_time
+              ? matchingVideo.create_time * 1000
+              : new Date(matchingVideo.createTime).getTime();
+            const matchPubTime = Math.floor(rawPubTime / 60000) * 60000;
+
+            // 查找匹配的记录
+            const candidates = existingRecordsMap.get(matchPubTime);
+            let recordId: string | undefined;
+
+            if (candidates) {
+              // 优先通过内容描述匹配，如果找不到则使用第一条记录
+              const match = candidates.find(c => c.desc === matchingVideo.name);
+              recordId = match?.id || candidates[0]?.id;
+            }
+
+            if (!recordId) {
+              addLog('warning', `未找到匹配记录: ${score.video_id}`);
+              failedCount++;
+              continue;
+            }
+
+            // 构建更新字段
+            const fields: Record<string, any> = {};
+
+            // AI 评分 - 数字类型
+            fields['AI评分'] = Math.round(score.overall_score);
+
+            // AI 评级 - 文本类型
+            fields['AI评级'] = String(score.grade);
+
+            // 病毒指数 - 文本类型
+            fields['病毒指数'] = String(score.viral_index);
+
+            // AI 建议 - 文本类型
+            fields['AI建议'] = String(score.optimization_advice);
+
+            // AI 分析理由 - 文本类型
+            fields['AI分析理由'] = String(score.reasoning);
+
+            // 建议发布时间（如果有）- 文本类型
+            if (score.suggested_publish_time) {
+              fields['建议发布时间'] = String(score.suggested_publish_time);
+            }
+
+            console.log('[Feishu Write] 更新字段:', JSON.stringify(fields, null, 2));
+
+            // 调用飞书更新 API
+            const updateUrl = `/feishu-api/open-apis/bitable/v1/apps/${baseToken}/tables/${targetConfig.tableId}/records/${recordId}`;
+
+            const updateRes = await fetch(updateUrl, {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ fields })
+            });
+
+            const updateData = await updateRes.json();
+
+            if (updateData.code !== 0) {
+              console.error('[Feishu Write] 错误详情:', JSON.stringify(updateData, null, 2));
+              addLog('error', `更新失败: ${score.video_id}`, `${updateData.msg} (code: ${updateData.code})`);
+              failedCount++;
+            } else {
+              addLog('success', `✅ 已更新: ${score.video_id}`);
+              successCount++;
+            }
+
+          } catch (err: any) {
+            addLog('error', `处理异常: ${score.video_id}`, err.message);
+            failedCount++;
+          }
+        }
       }
 
-      // 获取飞书凭证
-      const feishuConfig = (config as any).feishuConfig || {};
-      const appId = feishuConfig.appId || '';
-      const appSecret = feishuConfig.appSecret || '';
+      addLog('success', `AI 分析结果写入完成: 成功 ${successCount} 条，失败 ${failedCount} 条`);
+      addTerminalMessage(`✅ 写入完成: 成功 ${successCount} 条，失败 ${failedCount} 条`);
 
-      if (!appId || !appSecret) {
-        addTerminalMessage('⚠️ 未配置飞书凭证，跳过写入');
-        return;
-      }
-
-      // 调用写入 API
-      const result = await writeScoresToFeishu({
-        app_id: appId,
-        app_secret: appSecret,
-        app_token: targetConfig.baseToken,
-        table_id: targetConfig.tableId,
-        scores: scores
-      });
-
-      if (result.status === 'success') {
-        addTerminalMessage(`✅ 成功写入飞书 ${result.data?.success || 0} 条记录`);
-      } else {
-        addTerminalMessage(`⚠️ 飞书写入失败: ${result.message}`);
-      }
     } catch (error) {
       console.error('[Feishu Write] 写入失败:', error);
+      addLog('error', '飞书写入异常', (error as Error).message);
       addTerminalMessage('⚠️ 飞书写入异常，请查看控制台');
     }
   };
@@ -101,36 +221,110 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
     setAnalysis({ status: 'analyzing', currentLayer: 'content', progress: 0, message: '正在启动AI分析...' });
 
     try {
-      // 添加终端消息
-      const addTerminalMessage = (msg: string) => {
-        messagesRef.current.push(msg);
-        setMessageUpdateTrigger(prev => prev + 1);
-      };
-
       addTerminalMessage('正在连接AI分析引擎...');
 
-      // 收集所有视频数据
-      const allVideos: VideoItem[] = [];
-      for (const account of accountsData) {
-        for (const video of account.videos) {
-          allVideos.push({
-            video_id: `${account.username}_${video.createTime}`,
-            title: video.name,
-            description: video.name,
-            views: 0, // 可以从 video 中获取实际数据
-            account_name: account.username,
-            group_name: account.group_name || '',
-          });
-        }
+    // 收集所有视频数据（包含完整互动数据）
+    const allVideos: VideoItem[] = [];
+    const skippedGroupsSet = new Set<string>();
+
+    for (const account of accountsData) {
+      if (!isGroupAllowedInAI(account.group_name || '')) {
+        skippedGroupsSet.add(account.group_name || '未分组');
+        continue;
+      }
+      for (const video of account.videos) {
+        allVideos.push({
+          video_id: `${account.username}_${video.createTime}`,
+          title: video.name,
+          description: video.desc?.description || video.name,
+          views: video.readCount || 0,
+          account_name: account.username,
+          group_name: account.group_name || '',
+          publish_time: video.createTime,
+          // 互动数据
+          like_count: video.likeCount || 0,
+          comment_count: video.commentCount || 0,
+          share_count: video.forwardCount || 0,
+          fav_count: video.favCount || 0,
+          forward_agg_count: video.forwardAggregationCount || 0,
+          // 播放数据
+          full_play_rate: video.fullPlayRate || '0%',
+          avg_play_time: video.avgPlayTimeSec || '0秒',
+        });
+      }
+    }
+
+    const skippedGroups = Array.from(skippedGroupsSet);
+    addTerminalMessage(`提取到 ${allVideos.length} 个视频样本`);
+
+    // 演示模式：显示过滤统计
+    if (skippedGroups.length > 0) {
+      addTerminalMessage(`🔍 已过滤 ${skippedGroups.length} 个非目标分组`);
+    }
+
+    // 按账号分组显示进度
+    const accountGroups = new Map<string, typeof allVideos>();
+    for (const video of allVideos) {
+      const account = video.account_name;
+      if (!accountGroups.has(account)) {
+        accountGroups.set(account, []);
+      }
+      accountGroups.get(account)!.push(video);
+    }
+
+    addTerminalMessage(`📊 按账号分组: ${accountGroups.size} 个账号`);
+    for (const [account, videos] of accountGroups) {
+      addTerminalMessage(`  • ${account}: ${videos.length} 个视频`);
+    }
+
+    // 🔴 测试模式：限制只分析前 N 个账号
+    const maxAccounts = getMaxAccountsToAnalyze();
+    if (maxAccounts > 0) {
+      addTerminalMessage(`⚠️ 测试模式：仅分析前 ${maxAccounts} 个账号`);
+
+      // 过滤出前 N 个账号的视频
+      const testModeVideos: VideoItem[] = [];
+      let accountCount = 0;
+      for (const [account, videos] of accountGroups) {
+        if (accountCount >= maxAccounts) break;
+        testModeVideos.push(...videos);
+        accountCount++;
       }
 
-      addTerminalMessage(`提取到 ${allVideos.length} 个视频样本`);
+      // 更新 allVideos 为测试模式的数据
+      allVideos.splice(0, allVideos.length, ...testModeVideos);
 
-      // 调用后端 AI 分析 API
-      addTerminalMessage('正在分析内容质量评分...');
-      setAnalysis({ status: 'analyzing', currentLayer: 'content', progress: 50, message: 'AI 分析中...' });
+      // 更新 accountGroups
+      accountGroups.clear();
+      for (const video of allVideos) {
+        const account = video.account_name;
+        if (!accountGroups.has(account)) {
+          accountGroups.set(account, []);
+        }
+        accountGroups.get(account)!.push(video);
+      }
 
-      const response = await analyzeVideoContent(allVideos);
+      addTerminalMessage(`📊 测试模式：实际分析 ${accountGroups.size} 个账号，${allVideos.length} 个视频`);
+    }
+
+    // 调用后端 AI 分析 API
+    addTerminalMessage('🚀 正在分析内容质量评分...');
+    setAnalysis({ status: 'analyzing', currentLayer: 'content', progress: 20, message: 'AI 分析中...' });
+
+    // 模拟显示账号分析进度
+    let currentIdx = 0;
+    for (const [account, videos] of accountGroups) {
+      currentIdx++;
+      const progress = 20 + Math.floor((currentIdx / accountGroups.size) * 60);
+      addTerminalMessage(`🤖 正在分析账号【${account}】(${currentIdx}/${accountGroups.size})...`);
+      setAnalysis({ status: 'analyzing', currentLayer: 'content', progress, message: `分析账号 ${account}...` });
+      await sleep(100);
+    }
+
+    addTerminalMessage('⏳ 等待 AI 分析结果...');
+    setAnalysis({ status: 'analyzing', currentLayer: 'content', progress: 85, message: '处理分析结果...' });
+
+    const response = await analyzeVideoContent(allVideos);
 
       if (response.status === 'success' && response.results) {
         addTerminalMessage('分析完成！');

@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Play, Loader2, Video, AlertCircle, Activity, FileText, MessageSquare, Sparkles, Lightbulb } from 'lucide-react';
 import { AppConfig, ScheduleItem, SyncLog, AIAnalysis } from '../types';
 import LogConsole from './LogConsole';
 import { fetchScheduleData } from '../services/feishuService';
 import { useAppContext } from '../contexts/AppContext';
 import { VideoScore } from '../services/aiAnalysisService';
+import { DEMO_CONFIG, isGroupAllowedInAI, getDemoHint } from '../config/demo';
 
 interface ScheduleViewProps {
   config: AppConfig;
@@ -35,7 +36,17 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
   const [strategyMessages, setStrategyMessages] = useState<string[]>([]);
 
   // Compute unique groups for the filter dropdown
-  const uniqueGroups = Array.from(new Set(results.map(r => r.groupName))).sort();
+  // 演示模式：AI 模式下只显示允许的分组
+  const uniqueGroups = Array.from(
+    new Set(
+      results
+        .map(r => r.groupName)
+        .filter(g => isAI && DEMO_CONFIG.enabled && DEMO_CONFIG.allowedGroups.length > 0
+          ? isGroupAllowedInAI(g)
+          : true
+        )
+    )
+  ).sort();
 
   // Helper to filter by group first, used for account options and main filter
   const getGroupFilteredResults = () => {
@@ -43,6 +54,13 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
       ? results 
       : results.filter(r => r.groupName === selectedGroup);
   };
+
+  // 演示模式：AI 模式下默认选中目标分组
+  useEffect(() => {
+    if (isAI && DEMO_CONFIG.enabled && DEMO_CONFIG.defaultGroup) {
+      setSelectedGroup(DEMO_CONFIG.defaultGroup);
+    }
+  }, [isAI]);
 
   const groupFilteredResults = getGroupFilteredResults();
 
@@ -52,7 +70,12 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
   // Filter results based on selected group and deduplication mode
   const filteredResults = (() => {
     // 1. Group Filter (already done in groupFilteredResults)
-    let list = groupFilteredResults;
+    // 演示模式：AI 模式下只显示允许的分组
+    let list = groupFilteredResults.filter(r => 
+      isAI && DEMO_CONFIG.enabled && DEMO_CONFIG.allowedGroups.length > 0
+        ? isGroupAllowedInAI(r.groupName)
+        : true
+    );
 
     // 2. Account Filter
     if (accountSearchTerm.trim()) {
@@ -174,6 +197,12 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
 
     addLog('info', '开始排期计算...');
 
+    // 演示模式提示
+    const demoHint = getDemoHint();
+    if (demoHint) {
+      addLog('info', demoHint);
+    }
+
     // ============ AI 智能模式: 启动策略面板 ============
     if (isAI) {
       setShowStrategyPanel(true);
@@ -250,6 +279,12 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ config }) => {
                   }`}>
                     智能筛选符合条件的潜力视频进行发布排期
                     {isAI && <Sparkles className="w-4 h-4 inline ml-2 text-indigo-500" />}
+                  {/* 演示模式提示 */}
+                  {isAI && DEMO_CONFIG.enabled && (
+                    <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-300">
+                      演示模式
+                    </span>
+                  )}
                   </p>
               </div>
         </div>

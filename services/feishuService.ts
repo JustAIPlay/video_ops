@@ -4,7 +4,7 @@ import { VideoItem, AppConfig, ScheduleItem } from "../types";
 let cachedToken: string | null = null;
 let tokenExpireAt: number = 0;
 
-async function getAccessToken(appId: string, appSecret: string): Promise<string> {
+export async function getAccessToken(appId: string, appSecret: string): Promise<string> {
   if (cachedToken && Date.now() < tokenExpireAt) {
     return cachedToken;
   }
@@ -31,7 +31,7 @@ async function getAccessToken(appId: string, appSecret: string): Promise<string>
 const baseTokenCache = new Map<string, string>();
 
 // Helper to resolve real Base Token from potential Wiki Token
-async function resolveBaseToken(originalToken: string, appAccessToken: string): Promise<string> {
+export async function resolveBaseToken(originalToken: string, appAccessToken: string): Promise<string> {
     if (baseTokenCache.has(originalToken)) {
         return baseTokenCache.get(originalToken)!;
     }
