@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import SyncView from './components/SyncView';
 import SettingsView from './components/SettingsView';
 import ScheduleView from './components/ScheduleView';
+import { ReviewView } from './components/ReviewView';
 import { AppConfig } from './types';
 import { DEFAULT_CONFIG } from './constants';
 import { Calendar } from 'lucide-react';
@@ -12,7 +13,7 @@ import './styles/theme-ai.css';
 const STORAGE_KEY = 'JIKE_OPS_CONFIG_V1';
 
 const AppContent: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'sync' | 'settings' | 'schedule'>('sync');
+  const [activeTab, setActiveTab] = useState<'sync' | 'settings' | 'schedule' | 'review'>('sync');
 
   // Initialize config from localStorage or fallback to default
   const [config, setConfig] = useState<AppConfig>(() => {
@@ -47,6 +48,7 @@ const AppContent: React.FC = () => {
       {activeTab === 'sync' && <SyncView config={config} />}
       {activeTab === 'settings' && <SettingsView config={config} onSave={handleConfigSave} />}
       {activeTab === 'schedule' && <ScheduleView config={config} />}
+      {activeTab === 'review' && <ReviewView />}
     </Layout>
   );
 };

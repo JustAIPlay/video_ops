@@ -5,8 +5,8 @@ import { useAppContext } from '../contexts/AppContext';
 
 interface LayoutProps {
   children: React.ReactNode;
-  activeTab: 'sync' | 'settings' | 'schedule';
-  onTabChange: (tab: 'sync' | 'settings' | 'schedule') => void;
+  activeTab: 'sync' | 'settings' | 'schedule' | 'review';
+  onTabChange: (tab: 'sync' | 'settings' | 'schedule' | 'review') => void;
 }
 
 const LayoutContent: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => {
@@ -72,6 +72,33 @@ const LayoutContent: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           >
             <Calendar className={`w-6 h-6 transition-transform ${activeTab === 'schedule' ? 'scale-110' : 'group-hover:scale-110'}`} />
             <span className="hidden lg:block font-bold">发布排期</span>
+          </button>
+
+          {/* 每日复盘 - 新增 */}
+          <button
+            onClick={() => onTabChange('review')}
+            className={`group w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all duration-300 relative ${
+              activeTab === 'review'
+                ? isAI
+                  ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-md translate-x-1'
+                  : 'bg-[#8C7CF0] text-white shadow-xl shadow-violet-200 translate-x-1'
+                : isAI
+                  ? 'text-slate-500 hover:bg-indigo-50 hover:text-indigo-500'
+                  : 'text-slate-500 hover:bg-violet-50 hover:text-[#8C7CF0]'
+            }`}
+          >
+            {/* AI 模式下的流光效果 */}
+            {isAI && activeTab === 'review' && (
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 animate-[shimmer_2s_infinite]"></div>
+            )}
+            <Sparkles className={`w-6 h-6 transition-transform relative z-10 ${activeTab === 'review' ? 'scale-110 animate-pulse' : 'group-hover:scale-110'}`} />
+            <span className="hidden lg:block font-bold relative z-10">每日复盘</span>
+            {/* AI 模式标记 */}
+            {isAI && (
+              <span className="hidden lg:inline-block ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-600 relative z-10">
+                AI
+              </span>
+            )}
           </button>
 
           <button
