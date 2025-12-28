@@ -22,6 +22,8 @@ import traceback
 from services.matrix_agent import MatrixAdvisor
 from services.agents.content_agent import ContentQualityAgent
 from models.analysis import VideoItem, VideoScore, AIAnalysisRequest, AIAnalysisResponse
+# Phase 3: 每日复盘
+from services.review.routes import router as review_router
 
 # 加载环境变量
 load_dotenv()
@@ -108,6 +110,9 @@ class FeishuWriteRequest(BaseModel):
 
 
 # ================== API 路由 ==================
+
+# 注册复盘路由
+app.include_router(review_router)
 
 @app.get("/", response_model=dict)
 async def root():
