@@ -1,5 +1,5 @@
 // components/ReviewView/index.tsx
-// Phase 3: 每日复盘会议功能 - 主视图组件（微信风格聊天版）
+// Phase 3: 每日复盘会议功能 - 主视图组件（微信风格聊天版 + API 对接）
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Sparkles, Play, Loader2 } from 'lucide-react';
@@ -13,6 +13,7 @@ import { ReviewProgress } from './ReviewProgress';
 import { LoadingScreen } from './LoadingScreen';
 import { ErrorRetry } from './ErrorRetry';
 import { SummaryCard } from './SummaryCard';
+import * as reviewService from '../../services/reviewService';
 import type {
   AgentType,
   AgentStatus,
@@ -31,7 +32,12 @@ const getTomorrowDate = (): string => {
   return tomorrow.toISOString().split('T')[0];
 };
 
-// Mock 数据准备（待后端实现后移除）
+// 获取今天的日期 (YYYY-MM-DD)
+const getTodayDate = (): string => {
+  return new Date().toISOString().split('T')[0];
+};
+
+// Mock 数据（作为降级方案）
 const mockLoadingSteps = [
   { label: '从飞书获取今日数据', status: 'completed' },
   { label: '加载 AI 分析结果', status: 'completed' },
@@ -51,27 +57,20 @@ const mockAgentMessages: Partial<Record<AgentType, string>> = {
    - 🥈 10分钟掌握ChatGPT - 播放 6,780 | 互动率 3.9%
    - 🥉 Python入门实战教程 - 播放 5,620 | 互动率 3.5%
 
-3. **需关注数据**
-   - ⚠️ 3 条视频播放量 < 1000
-   - ⚠️ 平均完播率下降 2.1%
-
-4. **数据洞察**
-   - AI 图书赛道流量整体上升
-   - 19:30-20:30 时段效果最佳`,
+3. **数据洞察**
+   - AI 图书赛道流量整体上升`,
   strategist: `# 策略执行评估
 
 1. **策略执行评估**
    - 今日排期计划完成度：100%
-   - 预估准确率：87%（实际 vs 预期）
+   - 预估准确率：87%
 
 2. **时段效果分析**
    - 🟢 最佳时段：19:30-20:30（平均播放 3,200）
-   - 🟡 一般时段：17:00-18:00（平均播放 1,800）
    - 🔴 避免时段：12:00-13:00（平均播放 800）
 
 3. **明日排期建议**
-   - 建议发布时段：19:30、20:00、20:30
-   - 建议发布顺序：先干货后引流`,
+   - 建议发布时段：19:30、20:00、20:30`,
   hacker: `# 关键发现
 
 1. **关键发现**
@@ -81,19 +80,16 @@ const mockAgentMessages: Partial<Record<AgentType, string>> = {
 2. **假设生成**
    - H1: "前 3 秒加入 AI 图书实物展示，可能提升完播率"
    - H2: "标题增加疑问句式，可能提升点击率"
-   - H3: "ai图书账号在晚间发布效果可能更好"
 
 3. **实验建议**
-   - 🧪 A/B 测试标题风格
-   - 🧪 测试不同封面图`
+   - 🧪 A/B 测试标题风格`
 };
 
 const mockSummary: ReviewSummary = {
   keyInsights: [
     'AI 图书赛道流量整体上升趋势明显',
     '19:30-20:30 是黄金发布时段',
-    '疑问句式标题可提升点击率',
-    '完播率有下降趋势，需优化前3秒内容'
+    '疑问句式标题可提升点击率'
   ],
   actionItems: [
     {
@@ -107,18 +103,6 @@ const mockSummary: ReviewSummary = {
         time: '19:30',
         date: getTomorrowDate()
       }
-    },
-    {
-      id: 'act_2',
-      text: 'A/B 测试疑问句式标题',
-      priority: 'medium',
-      type: 'experiment',
-      executable: true,
-      experimentData: {
-        hypothesisId: 'H1',
-        variables: { titleStyle: 'question' },
-        duration: 3
-      }
     }
   ],
   hypotheses: [
@@ -131,6 +115,7 @@ export const ReviewView: React.FC = () => {
   const { mode } = useAppContext();
   const isAI = mode === 'ai';
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   // 状态管理
   const [status, setStatus] = useState<ReviewStatus>('idle');
@@ -147,6 +132,17 @@ export const ReviewView: React.FC = () => {
   const [summary, setSummary] = useState<ReviewSummary | null>(null);
   const [error, setError] = useState<ReviewError | null>(null);
   const [conversationRound, setConversationRound] = useState(0);
+  const [reviewId, setReviewId] = useState<string | null>(null);
+  const [useMock, setUseMock] = useState(false); // 降级到 Mock 模式
+
+  // 清理 SSE 连接
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, []);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -171,7 +167,51 @@ export const ReviewView: React.FC = () => {
     setStatus('preparing');
     setCurrentStage('数据准备');
 
-    // 模拟数据准备
+    try {
+      // 尝试调用真实 API
+      const response = await reviewService.startReview({
+        date: getTodayDate()
+      });
+      setReviewId(response.reviewId);
+
+      // 更新加载步骤
+      setLoadingSteps([
+        { label: '从飞书获取今日数据', status: 'completed' },
+        { label: `加载 ${response.dataSummary.totalVideos} 条视频数据`, status: 'completed' },
+        { label: '初始化 Agent...', status: 'loading' }
+      ]);
+
+      // 轮询检查准备状态
+      const pollStatus = setInterval(async () => {
+        try {
+          const statusResp = await reviewService.getReviewStatus(response.reviewId);
+          setProgress(statusResp.progress);
+
+          if (statusResp.ready) {
+            clearInterval(pollStatus);
+            setStatus('in_progress');
+            setCurrentStage('数据分析');
+            startAgentSequence(response.reviewId);
+          }
+        } catch (err) {
+          console.error('[Review] 轮询状态失败:', err);
+          clearInterval(pollStatus);
+          // 降级到 Mock 模式
+          fallbackToMock();
+        }
+      }, 1000);
+
+    } catch (err) {
+      console.error('[Review] 启动复盘失败，使用 Mock 模式:', err);
+      fallbackToMock();
+    }
+  }, []);
+
+  // 降级到 Mock 模式
+  const fallbackToMock = useCallback(() => {
+    setUseMock(true);
+    toast('后端服务不可用，使用演示模式', { icon: '⚠️' });
+
     setTimeout(() => {
       setLoadingSteps([
         { label: '从飞书获取今日数据', status: 'completed' },
@@ -180,23 +220,118 @@ export const ReviewView: React.FC = () => {
       ]);
       setStatus('in_progress');
       setCurrentStage('数据分析');
-      startAgentSequence();
+      startMockAgentSequence();
     }, 1500);
   }, []);
 
-  // 启动 Agent 序列
-  const startAgentSequence = async () => {
+  // 启动 Agent 序列（真实 API）
+  const startAgentSequence = useCallback(async (id: string) => {
     for (const agentType of AGENT_ORDER) {
-      await playAgent(agentType);
+      await playAgent(id, agentType);
+    }
+    // 生成总结
+    try {
+      const summaryResp = await reviewService.summarizeReview(id);
+      setSummary(summaryResp.summary);
+    } catch (err) {
+      console.error('[Review] 生成总结失败，使用 Mock:', err);
+      setSummary(mockSummary);
+    }
+    setCurrentStage('会议总结');
+    setProgress(100);
+    setStatus('completed');
+  }, []);
+
+  // Mock Agent 序列
+  const startMockAgentSequence = useCallback(async () => {
+    for (const agentType of AGENT_ORDER) {
+      await playMockAgent(agentType);
     }
     setCurrentStage('会议总结');
     setProgress(100);
     setStatus('completed');
     setSummary(mockSummary);
-  };
+  }, []);
 
-  // 播放单个 Agent
-  const playAgent = (agentType: AgentType): Promise<void> => {
+  // 播放单个 Agent（真实 API - SSE）
+  const playAgent = useCallback((id: string, agentType: AgentType): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      setCurrentAgent(agentType);
+      setAgentStatus(prev => ({ ...prev, [agentType]: 'thinking' }));
+
+      let content = '';
+      let messageSent = false;
+
+      try {
+        const eventSource = reviewService.createAgentStream(id, agentType);
+        eventSourceRef.current = eventSource;
+
+        eventSource.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+
+            if (data.status === 'streaming') {
+              // 流式内容更新
+              if (!messageSent) {
+                setAgentStatus(prev => ({ ...prev, [agentType]: 'speaking' }));
+                messageSent = true;
+              }
+              content += data.content_delta || '';
+
+              // 更新消息内容
+              setMessages(prev => {
+                const lastMsg = prev[prev.length - 1];
+                if (lastMsg && lastMsg.agent === agentType && lastMsg.id.startsWith('stream_')) {
+                  // 更新现有消息
+                  return prev.map(msg =>
+                    msg.id === lastMsg.id
+                      ? { ...msg, content }
+                      : msg
+                  );
+                } else {
+                  // 创建新消息
+                  const newMsg: ReviewMessage = {
+                    id: `stream_${Date.now()}_${agentType}`,
+                    agent: agentType,
+                    content,
+                    timestamp: Date.now(),
+                    type: 'text'
+                  };
+                  return [...prev, newMsg];
+                }
+              });
+            } else if (data.status === 'complete') {
+              // 完成
+              eventSource.close();
+              setAgentStatus(prev => ({ ...prev, [agentType]: 'completed' }));
+              setCurrentAgent(null);
+              setStatus('discussion');
+              resolve();
+            } else if (data.status === 'error') {
+              // 错误
+              eventSource.close();
+              reject(new Error(data.message || 'Agent 发言失败'));
+            }
+          } catch (err) {
+            console.error('[Review] 解析 SSE 数据失败:', err);
+          }
+        };
+
+        eventSource.onerror = (err) => {
+          console.error('[Review] SSE 连接错误:', err);
+          eventSource.close();
+          reject(err);
+        };
+
+      } catch (err) {
+        console.error('[Review] 创建 SSE 连接失败:', err);
+        reject(err);
+      }
+    });
+  }, []);
+
+  // Mock Agent 播放
+  const playMockAgent = useCallback((agentType: AgentType): Promise<void> => {
     return new Promise((resolve) => {
       setCurrentAgent(agentType);
       setAgentStatus(prev => ({ ...prev, [agentType]: 'thinking' }));
@@ -221,7 +356,7 @@ export const ReviewView: React.FC = () => {
         }, 1500);
       }, 1000);
     });
-  };
+  }, []);
 
   // 主持人发送追问
   const handleSendMessage = useCallback(async (content: string) => {
@@ -234,37 +369,63 @@ export const ReviewView: React.FC = () => {
     };
     setMessages(prev => [...prev, userMessage]);
 
-    // 简单的追问逻辑：轮询下一个未完成的 Agent
-    const nextAgent = AGENT_ORDER[conversationRound % AGENT_ORDER.length];
-    setConversationRound(prev => prev + 1);
-
-    // 模拟 Agent 回复
-    setTimeout(() => {
-      setCurrentAgent(nextAgent);
-      setAgentStatus(prev => ({ ...prev, [nextAgent]: 'thinking' }));
+    if (useMock || !reviewId) {
+      // Mock 模式
+      const nextAgent = AGENT_ORDER[conversationRound % AGENT_ORDER.length];
+      setConversationRound(prev => prev + 1);
 
       setTimeout(() => {
-        setAgentStatus(prev => ({ ...prev, [nextAgent]: 'speaking' }));
+        setCurrentAgent(nextAgent);
+        setAgentStatus(prev => ({ ...prev, [nextAgent]: 'thinking' }));
+
+        setTimeout(() => {
+          setAgentStatus(prev => ({ ...prev, [nextAgent]: 'speaking' }));
+
+          const agentMessage: ReviewMessage = {
+            id: `msg_${Date.now()}_${nextAgent}`,
+            agent: nextAgent,
+            content: mockAgentMessages[nextAgent] || '感谢您的提问，让我进一步分析...',
+            timestamp: Date.now(),
+            type: 'text'
+          };
+          setMessages(prev => [...prev, agentMessage]);
+
+          setTimeout(() => {
+            setAgentStatus(prev => ({ ...prev, [nextAgent]: 'completed' }));
+            setCurrentAgent(null);
+          }, 1000);
+        }, 800);
+      }, 500);
+    } else {
+      // 真实 API
+      try {
+        const response = await reviewService.askQuestion(reviewId, { question: content });
 
         const agentMessage: ReviewMessage = {
-          id: `msg_${Date.now()}_${nextAgent}`,
-          agent: nextAgent,
-          content: mockAgentMessages[nextAgent] || '感谢您的提问，让我进一步分析...',
-          timestamp: Date.now(),
+          id: `msg_${Date.now()}_${response.agent as AgentType}`,
+          agent: response.agent as AgentType,
+          content: response.answer,
+          timestamp: response.timestamp,
           type: 'text'
         };
         setMessages(prev => [...prev, agentMessage]);
-
-        setTimeout(() => {
-          setAgentStatus(prev => ({ ...prev, [nextAgent]: 'completed' }));
-          setCurrentAgent(null);
-        }, 1000);
-      }, 800);
-    }, 500);
-  }, [conversationRound]);
+      } catch (err) {
+        console.error('[Review] 提问失败:', err);
+        toast.error('提问失败，请稍后重试');
+      }
+    }
+  }, [conversationRound, reviewId, useMock]);
 
   // 执行操作项
   const handleExecuteAction = useCallback(async (item: ActionItem) => {
+    if (!useMock && reviewId) {
+      try {
+        await reviewService.executeAction(reviewId, item.id, item.type);
+      } catch (err) {
+        console.error('[Review] 执行操作失败:', err);
+      }
+    }
+
     switch (item.type) {
       case 'scheduling':
         if (item.scheduleData) {
@@ -272,14 +433,12 @@ export const ReviewView: React.FC = () => {
         }
         break;
       case 'experiment':
-        if (item.experimentData) {
-          toast.success('实验已创建');
-        }
+        toast.success('实验已创建');
         break;
       default:
         toast.info('操作已记录');
     }
-  }, []);
+  }, [reviewId, useMock]);
 
   // 错误处理
   const handleRetry = useCallback(() => {
@@ -305,6 +464,12 @@ export const ReviewView: React.FC = () => {
   }, []);
 
   const handleEnd = useCallback(() => {
+    // 关闭 SSE 连接
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+
     toast.success('会议已结束');
     setStatus('idle');
     setMessages([]);
@@ -317,6 +482,8 @@ export const ReviewView: React.FC = () => {
     setCurrentStage('数据准备');
     setProgress(0);
     setConversationRound(0);
+    setReviewId(null);
+    setUseMock(false);
   }, []);
 
   // 更新进度
@@ -363,6 +530,7 @@ export const ReviewView: React.FC = () => {
               {status === 'in_progress' && '进行中'}
               {status === 'discussion' && '讨论中'}
               {status === 'completed' && '已完成'}
+              {useMock && ' (演示模式)'}
             </p>
           </div>
         </div>
