@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 Review Agent Base - 复盘 Agent 基类
+支持 DeepSeek R1 等推理模型
 """
 import os
 import json
 from typing import Dict, Any, Optional, AsyncIterator
 from abc import ABC, abstractmethod
-from openai import OpenAI
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,6 +19,7 @@ class ReviewAgentBase(ABC):
 
     提供：
     - 流式输出支持
+    - DeepSeek R1 推理模型支持（reasoning_content）
     - 上下文注入
     - 降级策略
     """
@@ -30,7 +32,7 @@ class ReviewAgentBase(ABC):
             system_prompt: System Prompt
         """
         self.system_prompt = system_prompt
-        self.client = OpenAI(
+        self.client = AsyncOpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
             base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
         )
@@ -42,6 +44,7 @@ class ReviewAgentBase(ABC):
         from . import AGENT_NAME
         print(f"[{AGENT_NAME}] 初始化完成")
         print(f"[{AGENT_NAME}] 使用模型: {self.model}")
+        print(f"[{AGENT_NAME}] API Base: {os.getenv('OPENAI_BASE_URL')}")
 
     def build_prompt(self, context: Dict[str, Any]) -> str:
         """
@@ -60,6 +63,8 @@ class ReviewAgentBase(ABC):
     async def generate_stream(self, context: Dict[str, Any]) -> AsyncIterator[str]:
         """
         流式生成内容
+
+        支持 DeepSeek R1 的 reasoning_content 和 content 分离输出
 
         Args:
             context: Agent 上下文
@@ -83,11 +88,26 @@ class ReviewAgentBase(ABC):
             )
 
             async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+                if not chunk.choices:
+                    continue
+
+                delta = chunk.choices[0].delta
+
+                # DeepSeek R1 支持 reasoning_content (思维链)
+                # 可以选择是否输出思维链内容
+                if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                    # 可选：输出思维链内容（注释掉则不输出）
+                    # yield delta.reasoning_content
+                    pass
+
+                # 正常内容输出
+                if delta.content:
+                    yield delta.content
 
         except Exception as e:
             print(f"[{self.__class__.__name__}] 生成失败: {e}")
+            import traceback
+            traceback.print_exc()
             # 返回降级响应
             fallback = self._get_fallback_response()
             for char in fallback:
