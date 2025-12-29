@@ -2,17 +2,11 @@
 """
 Review Routes - 每日复盘会议 API 路由
 """
-import sys
-import io
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 from datetime import datetime, timedelta
-
-# 设置 UTF-8 编码输出
-if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from models.review import (
     StartReviewRequest, StartReviewResponse, DataSummary, AgentType,

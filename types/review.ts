@@ -3,9 +3,9 @@
 
 import type { VideoItem } from '../types';
 
-export type AgentType = 'analyst' | 'strategist' | 'hacker';
+export type AgentType = 'analyst' | 'strategist' | 'hacker' | 'user';
 export type AgentStatus = 'idle' | 'thinking' | 'speaking' | 'completed';
-export type ReviewStatus = 'preparing' | 'in_progress' | 'discussion' | 'completed';
+export type ReviewStatus = 'idle' | 'preparing' | 'in_progress' | 'discussion' | 'completed';
 export type ReviewStage = '数据准备' | '数据分析' | '策略制定' | '增长建议' | '会议总结';
 export type InteractionMode = 'sequential' | 'interrupt';
 

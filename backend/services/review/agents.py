@@ -2,13 +2,7 @@
 """
 Review Agents - 每日复盘 Agent 实现
 """
-import sys
-import io
 from typing import Dict, Any, AsyncIterator
-
-# 设置 UTF-8 编码输出
-if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from .base_agent import ReviewAgentBase, ReviewAgentFactory
 from prompts.review_prompts import (

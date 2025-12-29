@@ -1,14 +1,14 @@
 // components/ReviewView/index.tsx
-// Phase 3: 每日复盘会议功能 - 主视图组件
+// Phase 3: 每日复盘会议功能 - 主视图组件（微信风格聊天版）
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Sparkles, Play, Loader2 } from 'lucide-react';
 import { useAppContext } from '../../contexts/AppContext';
 import toast from 'react-hot-toast';
 import { AGENT_STYLES, AGENT_ORDER } from './constants';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentMessage } from './AgentMessage';
-import { UserActions } from './UserActions';
+import { ChatInput } from './ChatInput';
 import { ReviewProgress } from './ReviewProgress';
 import { LoadingScreen } from './LoadingScreen';
 import { ErrorRetry } from './ErrorRetry';
@@ -21,8 +21,7 @@ import type {
   ReviewMessage,
   ReviewSummary,
   ActionItem,
-  ReviewError,
-  AgentContext
+  ReviewError
 } from '../../types/review';
 
 // 获取明天的日期 (YYYY-MM-DD)
@@ -42,61 +41,51 @@ const mockLoadingSteps = [
 const mockAgentMessages: Partial<Record<AgentType, string>> = {
   analyst: `# 今日数据概览
 
-1. 今日概览
+1. **今日概览**
    - 发布数量：9 条
    - 总播放量：45,230
    - 平均互动率：3.8%
 
-2. Top 3 表现
+2. **Top 3 表现**
    - 🥇 AI图书推荐-高效学习法 - 播放 8,450 | 互动率 4.2%
    - 🥈 10分钟掌握ChatGPT - 播放 6,780 | 互动率 3.9%
    - 🥉 Python入门实战教程 - 播放 5,620 | 互动率 3.5%
 
-3. 需关注数据
+3. **需关注数据**
    - ⚠️ 3 条视频播放量 < 1000
    - ⚠️ 平均完播率下降 2.1%
 
-4. 数据洞察
+4. **数据洞察**
    - AI 图书赛道流量整体上升
    - 19:30-20:30 时段效果最佳`,
   strategist: `# 策略执行评估
 
-1. 策略执行评估
+1. **策略执行评估**
    - 今日排期计划完成度：100%
    - 预估准确率：87%（实际 vs 预期）
 
-2. 时段效果分析
+2. **时段效果分析**
    - 🟢 最佳时段：19:30-20:30（平均播放 3,200）
    - 🟡 一般时段：17:00-18:00（平均播放 1,800）
    - 🔴 避免时段：12:00-13:00（平均播放 800）
 
-3. 内容组合评估
-   - 单一内容发布 vs 组合发布效果对比
-   - 账号间协同效应分析
-
-4. 明日排期建议
+3. **明日排期建议**
    - 建议发布时段：19:30、20:00、20:30
    - 建议发布顺序：先干货后引流`,
   hacker: `# 关键发现
 
-1. 关键发现
+1. **关键发现**
    - 💡 意外成功：《AI图书推荐》虽然评分 B 但播放量突出
-   - 🔍 异常案例：《Python实战》评分 A 但播放低迷，原因分析
+   - 🔍 异常案例：《Python实战》评分 A 但播放低迷
 
-2. 假设生成
+2. **假设生成**
    - H1: "前 3 秒加入 AI 图书实物展示，可能提升完播率"
    - H2: "标题增加疑问句式，可能提升点击率"
    - H3: "ai图书账号在晚间发布效果可能更好"
 
-3. 实验建议
-   - 🧪 实验 1：A/B 测试标题风格
-   - 🧪 实验 2：测试不同封面图
-   - 🧪 实验 3：测试发布时间
-
-4. 快速行动项
-   - [高优先级] 明日即可尝试：疑问句式标题
-   - [中优先级] 本周准备：封面图 A/B 测试
-   - [低优先级] 长期优化：实物展示开场`
+3. **实验建议**
+   - 🧪 A/B 测试标题风格
+   - 🧪 测试不同封面图`
 };
 
 const mockSummary: ReviewSummary = {
@@ -121,13 +110,6 @@ const mockSummary: ReviewSummary = {
     },
     {
       id: 'act_2',
-      text: '优化视频前3秒，加入实物展示',
-      priority: 'high',
-      type: 'content',
-      executable: false
-    },
-    {
-      id: 'act_3',
       text: 'A/B 测试疑问句式标题',
       priority: 'medium',
       type: 'experiment',
@@ -141,17 +123,17 @@ const mockSummary: ReviewSummary = {
   ],
   hypotheses: [
     'H1: 前 3 秒加入 AI 图书实物展示，可能提升完播率',
-    'H2: 标题增加疑问句式，可能提升点击率',
-    'H3: ai图书账号在晚间发布效果可能更好'
+    'H2: 标题增加疑问句式，可能提升点击率'
   ]
 };
 
 export const ReviewView: React.FC = () => {
   const { mode } = useAppContext();
   const isAI = mode === 'ai';
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // 状态管理
-  const [status, setStatus] = useState<ReviewStatus>('preparing');
+  const [status, setStatus] = useState<ReviewStatus>('idle');
   const [currentAgent, setCurrentAgent] = useState<AgentType | null>(null);
   const [agentStatus, setAgentStatus] = useState<Record<AgentType, AgentStatus>>({
     analyst: 'idle',
@@ -162,22 +144,35 @@ export const ReviewView: React.FC = () => {
   const [loadingSteps, setLoadingSteps] = useState(mockLoadingSteps);
   const [currentStage, setCurrentStage] = useState<ReviewStage>('数据准备');
   const [progress, setProgress] = useState(0);
-  const [estimatedTime, setEstimatedTime] = useState(120);
   const [summary, setSummary] = useState<ReviewSummary | null>(null);
   const [error, setError] = useState<ReviewError | null>(null);
+  const [conversationRound, setConversationRound] = useState(0);
 
-  // 计算是否可交互
-  const canInteract = useMemo(() => {
-    return (
-      status === 'discussion' &&
-      currentAgent === null &&
-      !error
-    );
-  }, [status, currentAgent, error]);
-
-  // 模拟初始化
+  // 自动滚动到底部
   useEffect(() => {
-    const timer = setTimeout(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // 判断是否可以发送消息
+  const canSendMessage = useMemo(() => {
+    return status === 'idle' || status === 'discussion';
+  }, [status]);
+
+  // 主持人发起复盘
+  const handleStartReview = useCallback(async () => {
+    const startMessage: ReviewMessage = {
+      id: `msg_${Date.now()}_user`,
+      agent: 'user',
+      content: '请开始今天的复盘',
+      timestamp: Date.now(),
+      type: 'text'
+    };
+    setMessages([startMessage]);
+    setStatus('preparing');
+    setCurrentStage('数据准备');
+
+    // 模拟数据准备
+    setTimeout(() => {
       setLoadingSteps([
         { label: '从飞书获取今日数据', status: 'completed' },
         { label: '加载 AI 分析结果', status: 'completed' },
@@ -186,9 +181,7 @@ export const ReviewView: React.FC = () => {
       setStatus('in_progress');
       setCurrentStage('数据分析');
       startAgentSequence();
-    }, 2000);
-
-    return () => clearTimeout(timer);
+    }, 1500);
   }, []);
 
   // 启动 Agent 序列
@@ -211,7 +204,6 @@ export const ReviewView: React.FC = () => {
       setTimeout(() => {
         setAgentStatus(prev => ({ ...prev, [agentType]: 'speaking' }));
 
-        // 添加消息
         const message: ReviewMessage = {
           id: `msg_${Date.now()}_${agentType}`,
           agent: agentType,
@@ -226,35 +218,50 @@ export const ReviewView: React.FC = () => {
           setCurrentAgent(null);
           setStatus('discussion');
           resolve();
-        }, 2000);
-      }, 1500);
+        }, 1500);
+      }, 1000);
     });
   };
 
-  // 处理用户操作
-  const handleAction = useCallback((action: string) => {
-    switch (action) {
-      case 'ask':
-        toast.success('提问功能（待后端实现）');
-        break;
-      case 'continue':
-        if (currentAgent) {
-          toast.success(`继续 ${AGENT_STYLES[currentAgent].name} 的发言`);
-        }
-        break;
-      case 'expand':
-        toast.success('展开更多内容（待后端实现）');
-        break;
-      case 'skip':
-        if (currentAgent) {
-          setAgentStatus(prev => ({ ...prev, [currentAgent]: 'completed' }));
+  // 主持人发送追问
+  const handleSendMessage = useCallback(async (content: string) => {
+    const userMessage: ReviewMessage = {
+      id: `msg_${Date.now()}_user`,
+      agent: 'user',
+      content,
+      timestamp: Date.now(),
+      type: 'text'
+    };
+    setMessages(prev => [...prev, userMessage]);
+
+    // 简单的追问逻辑：轮询下一个未完成的 Agent
+    const nextAgent = AGENT_ORDER[conversationRound % AGENT_ORDER.length];
+    setConversationRound(prev => prev + 1);
+
+    // 模拟 Agent 回复
+    setTimeout(() => {
+      setCurrentAgent(nextAgent);
+      setAgentStatus(prev => ({ ...prev, [nextAgent]: 'thinking' }));
+
+      setTimeout(() => {
+        setAgentStatus(prev => ({ ...prev, [nextAgent]: 'speaking' }));
+
+        const agentMessage: ReviewMessage = {
+          id: `msg_${Date.now()}_${nextAgent}`,
+          agent: nextAgent,
+          content: mockAgentMessages[nextAgent] || '感谢您的提问，让我进一步分析...',
+          timestamp: Date.now(),
+          type: 'text'
+        };
+        setMessages(prev => [...prev, agentMessage]);
+
+        setTimeout(() => {
+          setAgentStatus(prev => ({ ...prev, [nextAgent]: 'completed' }));
           setCurrentAgent(null);
-          setStatus('discussion');
-          toast.success('已跳过当前 Agent');
-        }
-        break;
-    }
-  }, [currentAgent]);
+        }, 1000);
+      }, 800);
+    }, 500);
+  }, [conversationRound]);
 
   // 执行操作项
   const handleExecuteAction = useCallback(async (item: ActionItem) => {
@@ -299,7 +306,7 @@ export const ReviewView: React.FC = () => {
 
   const handleEnd = useCallback(() => {
     toast.success('会议已结束');
-    setStatus('preparing');
+    setStatus('idle');
     setMessages([]);
     setSummary(null);
     setAgentStatus({
@@ -309,6 +316,7 @@ export const ReviewView: React.FC = () => {
     });
     setCurrentStage('数据准备');
     setProgress(0);
+    setConversationRound(0);
   }, []);
 
   // 更新进度
@@ -319,148 +327,159 @@ export const ReviewView: React.FC = () => {
     }
   }, [agentStatus, status]);
 
+  // 输入框提示文字
+  const inputPlaceholder = useMemo(() => {
+    if (status === 'idle') return '输入"请开始今天的复盘"发起会议...';
+    if (status === 'discussion') return '输入问题继续讨论...';
+    if (status === 'completed') return '会议已结束';
+    return 'Agent 发言中...';
+  }, [status]);
+
   return (
-    <div className={`flex flex-col h-full p-4 lg:p-8 gap-6 lg:gap-8 max-w-[1600px] mx-auto w-full transition-all duration-500 ${
+    <div className={`flex flex-col h-full p-4 lg:p-8 gap-4 lg:gap-6 max-w-[1400px] mx-auto w-full transition-all duration-500 ${
       isAI ? 'ai-mode-container' : ''
     }`}>
-      {/* 加载屏 */}
-      {status === 'preparing' && (
-        <LoadingScreen
-          steps={loadingSteps}
-          isAI={isAI}
-          estimatedTime={10}
-        />
-      )}
-
       {/* Header */}
-      <div className={`shrink-0 flex flex-col md:flex-row justify-between items-center rounded-3xl p-6 shadow-xl border transition-all duration-500 ${
+      <div className={`shrink-0 flex items-center justify-between rounded-2xl px-6 py-4 shadow-lg border transition-all duration-500 ${
         isAI
           ? 'bg-white border-indigo-200 shadow-indigo-100'
-          : 'bg-white border-white shadow-slate-100'
+          : 'bg-white border-slate-200 shadow-slate-100'
       }`}>
-        <div className="flex items-center gap-6 mb-4 md:mb-0">
-          <div className={`w-16 h-16 bg-gradient-to-tr ${
-            isAI ? 'from-indigo-400 to-violet-400' : 'from-[#8C7CF0] to-[#C6B9FF]'
-          } rounded-2xl flex items-center justify-center shadow-lg ${
-            isAI ? 'shadow-indigo-200' : 'shadow-violet-200'
-          } rotate-3 transform transition-transform hover:rotate-6`}>
-            <Sparkles className="w-8 h-8 text-white" />
+        <div className="flex items-center gap-4">
+          <div className={`w-12 h-12 bg-gradient-to-tr rounded-xl flex items-center justify-center shadow-lg ${
+            isAI ? 'from-indigo-400 to-violet-400 shadow-indigo-200' : 'from-[#8C7CF0] to-[#C6B9FF] shadow-violet-200'
+          }`}>
+            <Sparkles className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h2 className={`text-2xl font-extrabold transition-colors duration-500 ${
+            <h2 className={`text-lg font-bold transition-colors duration-500 ${
               isAI ? 'text-slate-800' : 'text-slate-800'
             }`}>每日复盘会议</h2>
-            <p className={`font-medium transition-colors duration-500 ${
-              isAI ? 'text-slate-600' : 'text-slate-500'
+            <p className={`text-xs font-medium transition-colors duration-500 ${
+              isAI ? 'text-slate-500' : 'text-slate-400'
             }`}>
-              AI 智能复盘今日运营表现
-              {isAI && <Sparkles className="w-4 h-4 inline ml-2 text-indigo-500" />}
+              {status === 'idle' && '等待发起'}
+              {status === 'preparing' && '准备中...'}
+              {status === 'in_progress' && '进行中'}
+              {status === 'discussion' && '讨论中'}
+              {status === 'completed' && '已完成'}
             </p>
           </div>
         </div>
-      </div>
 
-      {/* Agent 状态栏 */}
-      <div className={`flex items-center justify-center gap-8 p-6 rounded-3xl shadow-xl border transition-all duration-500 ${
-        isAI
-          ? 'bg-white border-indigo-200 shadow-indigo-100'
-          : 'bg-white border-white shadow-slate-100'
-      }`}>
-        {AGENT_ORDER.map((agentType, index) => (
-          <React.Fragment key={agentType}>
-            <AgentAvatar
-              type={agentType}
-              status={agentStatus[agentType]}
-              size="md"
-            />
-            {index < AGENT_ORDER.length - 1 && (
-              <div className={`w-16 h-0.5 transition-all duration-500 ${
-                agentStatus[AGENT_ORDER[index]] === 'completed' ? 'bg-emerald-400' : 'bg-slate-200'
-              }`} />
-            )}
-          </React.Fragment>
-        ))}
+        {/* Agent 状态指示器 */}
+        {status !== 'idle' && (
+          <div className="flex items-center gap-3">
+            {AGENT_ORDER.map((agentType) => (
+              <div
+                key={agentType}
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm transition-all duration-300 ${
+                  agentStatus[agentType] === 'completed'
+                    ? 'bg-emerald-500 text-white'
+                    : agentStatus[agentType] === 'thinking'
+                    ? 'bg-amber-400 text-white animate-pulse'
+                    : agentStatus[agentType] === 'speaking'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-slate-200 text-slate-400'
+                }`}
+                title={AGENT_STYLES[agentType].name}
+              >
+                {AGENT_STYLES[agentType].avatar}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 进度条 */}
-      {(status === 'in_progress' || status === 'discussion') && (
+      {(status === 'preparing' || status === 'in_progress') && (
         <ReviewProgress
           currentStage={currentStage}
           progress={progress}
-          estimatedTime={estimatedTime}
+          estimatedTime={60}
           isAI={isAI}
         />
       )}
 
-      {/* 会议内容区域 */}
-      <div className={`flex-1 min-h-0 rounded-3xl shadow-xl border flex flex-col relative overflow-hidden transition-all duration-500 ${
+      {/* 聊天区域 */}
+      <div className={`flex-1 min-h-0 rounded-2xl shadow-lg border flex flex-col relative overflow-hidden transition-all duration-500 ${
         isAI
-          ? 'bg-white border-indigo-200 shadow-indigo-100'
-          : 'bg-white border-white shadow-slate-100'
+          ? 'bg-slate-50 border-indigo-200'
+          : 'bg-slate-50 border-slate-200'
       }`}>
-        {/* 装饰性 blob */}
-        <div className={`absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl opacity-50 pointer-events-none transition-colors duration-500 ${
-          isAI ? 'bg-indigo-200' : 'bg-violet-50'
-        }`}></div>
-
-        {/* 内容区域 */}
-        <div className="relative z-10 flex flex-col h-full">
-          {/* 消息列表 */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {messages.map((message) => (
-              <AgentMessage
-                key={message.id}
-                message={message}
-                isAI={isAI}
-              />
-            ))}
-
-            {/* 正在输入指示器 */}
-            {currentAgent && (
-              <div className={`flex items-center gap-3 p-4 rounded-2xl border transition-all duration-500 ${
-                isAI
-                  ? 'bg-indigo-50 border-indigo-200'
-                  : 'bg-slate-50 border-slate-100'
+        {/* 消息列表 */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {/* 空状态 */}
+          {status === 'idle' && messages.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center text-slate-400">
+              <div className={`w-20 h-20 rounded-2xl flex items-center justify-center mb-4 ${
+                isAI ? 'bg-indigo-100' : 'bg-slate-100'
               }`}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                  AGENT_STYLES[currentAgent].colors.bg
-                }`}>
-                  <span className="text-sm">{AGENT_STYLES[currentAgent].avatar}</span>
-                </div>
-                <div className="flex gap-1">
-                  <div className={`w-2 h-2 rounded-full animate-bounce ${
-                    isAI ? 'bg-indigo-400' : 'bg-violet-400'
-                  }`} style={{ animationDelay: '0ms' }} />
-                  <div className={`w-2 h-2 rounded-full animate-bounce ${
-                    isAI ? 'bg-indigo-400' : 'bg-violet-400'
-                  }`} style={{ animationDelay: '150ms' }} />
-                  <div className={`w-2 h-2 rounded-full animate-bounce ${
-                    isAI ? 'bg-indigo-400' : 'bg-violet-400'
-                  }`} style={{ animationDelay: '300ms' }} />
-                </div>
-                <span className={`text-sm font-medium ${
-                  isAI ? 'text-indigo-600' : 'text-slate-500'
-                }`}>
-                  正在输入...
-                </span>
+                <Sparkles className={`w-10 h-10 ${isAI ? 'text-indigo-400' : 'text-slate-400'}`} />
               </div>
-            )}
+              <p className="text-lg font-medium mb-2">开始今天的复盘会议</p>
+              <p className="text-sm">输入"请开始今天的复盘"或点击下方按钮</p>
+            </div>
+          )}
 
-            {/* 错误显示 */}
-            {error && (
-              <div className="p-4">
+          {/* 加载屏 */}
+          {status === 'preparing' && (
+            <LoadingScreen
+              steps={loadingSteps}
+              isAI={isAI}
+              estimatedTime={10}
+            />
+          )}
+
+          {/* 消息列表 */}
+          {messages.length > 0 && (
+            <>
+              {messages.map((message) => (
+                <AgentMessage
+                  key={message.id}
+                  message={message}
+                  isAI={isAI}
+                />
+              ))}
+
+              {/* 正在输入指示器 */}
+              {currentAgent && (
+                <div className="flex items-center gap-3 mb-4">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                    AGENT_STYLES[currentAgent].colors.bg
+                  }`}>
+                    <span className="text-sm">{AGENT_STYLES[currentAgent].avatar}</span>
+                  </div>
+                  <div className={`px-4 py-2.5 rounded-2xl ${
+                    isAI ? 'bg-indigo-50' : 'bg-slate-100'
+                  }`}>
+                    <div className="flex gap-1">
+                      <div className={`w-2 h-2 rounded-full animate-bounce ${
+                        isAI ? 'bg-indigo-400' : 'bg-slate-400'
+                      }`} style={{ animationDelay: '0ms' }} />
+                      <div className={`w-2 h-2 rounded-full animate-bounce ${
+                        isAI ? 'bg-indigo-400' : 'bg-slate-400'
+                      }`} style={{ animationDelay: '150ms' }} />
+                      <div className={`w-2 h-2 rounded-full animate-bounce ${
+                        isAI ? 'bg-indigo-400' : 'bg-slate-400'
+                      }`} style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 错误显示 */}
+              {error && (
                 <ErrorRetry
                   error={error}
                   onRetry={handleRetry}
                   onSkip={handleSkipError}
                   isAI={isAI}
                 />
-              </div>
-            )}
+              )}
 
-            {/* 总结卡片 */}
-            {status === 'completed' && summary && (
-              <div className="p-4">
+              {/* 总结卡片 */}
+              {status === 'completed' && summary && (
                 <SummaryCard
                   summary={summary}
                   isAI={isAI}
@@ -469,22 +488,39 @@ export const ReviewView: React.FC = () => {
                   onSave={handleSave}
                   onEnd={handleEnd}
                 />
-              </div>
-            )}
-          </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </>
+          )}
         </div>
+
+        {/* 输入框区域 */}
+        {status !== 'preparing' && (
+          <ChatInput
+            onSend={status === 'idle' ? handleStartReview : handleSendMessage}
+            disabled={!canSendMessage || currentAgent !== null}
+            placeholder={inputPlaceholder}
+            isAI={isAI}
+          />
+        )}
       </div>
 
-      {/* 用户操作面板 */}
-      {status !== 'preparing' && status !== 'completed' && (
-        <UserActions
-          canInteract={canInteract}
-          isAI={isAI}
-          onAsk={() => handleAction('ask')}
-          onContinue={() => handleAction('continue')}
-          onExpand={() => handleAction('expand')}
-          onSkip={() => handleAction('skip')}
-        />
+      {/* 快捷操作按钮 */}
+      {status === 'idle' && (
+        <div className="shrink-0 flex justify-center">
+          <button
+            onClick={handleStartReview}
+            className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 flex items-center gap-2 ${
+              isAI
+                ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-200 hover:shadow-xl hover:shadow-indigo-300 hover:scale-105'
+                : 'bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105'
+            }`}
+          >
+            <Play className="w-5 h-5" />
+            开始复盘
+          </button>
+        </div>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 // components/ReviewView/AgentMessage.tsx
-// Phase 3: 每日复盘会议功能 - 消息气泡组件
+// Phase 3: 每日复盘会议功能 - 消息气泡组件（微信风格）
 
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -13,40 +13,48 @@ interface AgentMessageProps {
 
 export const AgentMessage: React.FC<AgentMessageProps> = ({ message, isAI }) => {
   const config = AGENT_STYLES[message.agent];
-  const { colors, avatar, name } = config;
+  const { colors, avatar, name, isUser } = config;
+  const isRight = isUser;
 
   return (
-    <div className={`flex gap-3 p-4 rounded-2xl border transition-all duration-500 message-appear ${
-      isAI
-        ? 'bg-white border-indigo-200 shadow-indigo-50'
-        : 'bg-white border-slate-100 shadow-slate-50'
-    }`}>
+    <div className={`flex gap-3 mb-4 message-appear ${isRight ? 'flex-row-reverse' : 'flex-row'}`}>
       {/* Avatar */}
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-        colors.bg
+      <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+        isUser ? 'bg-gradient-to-br from-emerald-400 to-emerald-600' : colors.bg
       }`}>
-        <span className="text-lg">{avatar}</span>
+        <span className="text-lg">{isUser ? '👤' : avatar}</span>
       </div>
 
-      {/* 内容 */}
-      <div className="flex-1 min-w-0">
-        {/* 名称和时间 */}
-        <div className="flex items-center gap-2 mb-2">
-          <span className={`font-bold text-sm ${colors.text}`}>{name}</span>
-          <span className={`text-xs ${isAI ? 'text-indigo-400' : 'text-slate-400'}`}>
-            {new Date(message.timestamp).toLocaleTimeString('zh-CN', {
-              hour: '2-digit',
-              minute: '2-digit'
-            })}
+      {/* 内容区域 */}
+      <div className={`flex flex-col ${isRight ? 'items-end' : 'items-start'} max-w-[70%]`}>
+        {/* 名称 */}
+        {!isUser && (
+          <span className={`text-xs font-medium ${colors.text} mb-1 ml-1`}>
+            {name}
           </span>
+        )}
+
+        {/* 消息气泡 */}
+        <div className={`px-4 py-2.5 rounded-2xl shadow-sm ${
+          isRight
+            ? 'bg-gradient-to-br from-emerald-500 to-emerald-600 text-white rounded-br-sm'
+            : `${colors.bubble} ${colors.bubbleText} border border-slate-100 rounded-bl-sm`
+        }`}>
+          {/* Markdown 内容 */}
+          <div className={`text-sm leading-relaxed prose prose-sm max-w-none ${
+            isRight ? 'prose-invert prose-emerald' : 'prose-slate'
+          }`}>
+            <ReactMarkdown>{message.content}</ReactMarkdown>
+          </div>
         </div>
 
-        {/* Markdown 内容 */}
-        <div className={`text-sm leading-relaxed prose prose-sm max-w-none ${
-          isAI ? 'prose-indigo' : 'prose-slate'
-        }`}>
-          <ReactMarkdown>{message.content}</ReactMarkdown>
-        </div>
+        {/* 时间 */}
+        <span className={`text-xs text-slate-400 mt-1 ${isRight ? 'mr-1' : 'ml-1'}`}>
+          {new Date(message.timestamp).toLocaleTimeString('zh-CN', {
+            hour: '2-digit',
+            minute: '2-digit'
+          })}
+        </span>
       </div>
     </div>
   );
