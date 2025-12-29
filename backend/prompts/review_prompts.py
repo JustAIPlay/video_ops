@@ -3,6 +3,7 @@
 Review Agent Prompts - 每日复盘 Agent 提示词
 定义三个复盘 Agent 的 System Prompt
 """
+import json
 
 # ==================== 数据分析 Agent ====================
 
@@ -198,38 +199,120 @@ SUMMARIZER_USER_PROMPT_TEMPLATE = """
 
 def build_data_analyst_prompt(context: dict) -> str:
     """构建数据分析 Agent 的用户提示"""
-    return DATA_ANALYST_USER_PROMPT_TEMPLATE.format(
-        date=context.get("date", ""),
-        total_videos=len(context.get("videos", [])),
-        total_views=sum(v.get("readCount", 0) for v in context.get("videos", [])),
-        avg_engagement_rate=_calculate_avg_engagement(context.get("videos", [])),
-        top3_videos=_format_top3(context.get("videos", [])),
-        concerns=_format_concerns(context.get("videos", [])),
-        history_comparison=_format_history_comparison(context.get("previousReviews", []))
-    )
+    # 如果有用户提问，直接回答问题
+    if "user_question" in context:
+        return f"""用户向你提问：{context['user_question']}
+
+请根据你的专业角色（数据分析师）来回答这个问题。
+- 如果问题与今日数据相关，请基于以下数据回答：
+{json.dumps({k: v for k, v in context.items() if k not in ['user_question']}, ensure_ascii=False, indent=2)}
+- 如果问题是一般性咨询，请以数据分析师的专业视角给出建议
+"""
+
+    # 正常的数据分析流程
+    videos = context.get("videos", [])
+    summary = context.get("summary", {})
+    date = context.get("date", "")
+
+    return f"""请分析以下视频数据：
+
+【日期】{date}
+
+【今日概览】
+- 发布视频数：{len(videos)} 条
+- 总播放量：{summary.get('total_views', 0):,}
+- 平均播放量：{summary.get('avg_views', 0):,.0f}
+- 平均互动率：{summary.get('avg_engagement_rate', 0):.2f}%
+
+【Top 3 表现】
+{_format_top3_with_account(videos)}
+
+【按账号统计】
+{_format_account_summary(summary.get('accounts', {}))}
+
+【需关注的数据】
+{_format_concerns(videos)}
+
+【AI 评分摘要】
+{_format_ai_summary(videos)}
+
+请按照要求输出数据分析报告。
+"""
 
 
 def build_strategist_prompt(context: dict) -> str:
     """构建排期策略 Agent 的用户提示"""
+    # 如果有用户提问，直接回答问题
+    if "user_question" in context:
+        return f"""用户向你提问：{context['user_question']}
+
+请根据你的专业角色（排期策略专家）来回答这个问题。
+- 如果问题与排期策略相关，请基于今日数据给出专业建议
+- 如果问题是一般性咨询，请以策略专家的视角给出分析
+"""
+
     videos = context.get("videos", [])
-    return STRATEGIST_USER_PROMPT_TEMPLATE.format(
-        planned_count=len(videos),
-        actual_count=len(videos),
-        completion_rate=100,
-        time_slot_analysis=_analyze_time_slots(videos),
-        account_performance=_analyze_accounts(videos),
-        historical_comparison=_format_history_comparison(context.get("previousReviews", []))
-    )
+    summary = context.get("summary", {})
+    date = context.get("date", "")
+
+    return f"""请分析今日的排期策略效果：
+
+【日期】{date}
+
+【今日排期执行情况】
+- 计划发布数：{len(videos)} 条
+- 实际发布数：{len(videos)} 条
+- 完成度：100%
+
+【时段效果分析】
+{_analyze_time_slots(videos)}
+
+【账号表现对比】
+{_format_account_performance(summary.get('accounts', {}))}
+
+【历史数据对比】
+暂无历史数据（首次运行）
+
+请按照要求输出策略分析报告。
+"""
 
 
 def build_growth_hacker_prompt(context: dict) -> str:
     """构建增长黑客 Agent 的用户提示"""
-    return GROWTH_HACKER_USER_PROMPT_TEMPLATE.format(
-        key_findings=_extract_key_findings(context.get("videos", [])),
-        content_analysis=_analyze_content(context.get("videoDetails", [])),
-        yesterday_hypotheses=_format_yesterday_hypotheses(context.get("yesterdayHypotheses", [])),
-        industry_trends="暂无行业趋势数据"
-    )
+    # 如果有用户提问，直接回答问题
+    if "user_question" in context:
+        return f"""用户向你提问：{context['user_question']}
+
+请根据你的专业角色（增长黑客）来回答这个问题。
+- 以增长黑客的思维方式回答：关注实验、假设、快速迭代
+- 提出有洞察力的观点和可验证的建议
+- 鼓励创新思维和非常规观点
+"""
+
+    videos = context.get("videos", [])
+    date = context.get("date", "")
+
+    return f"""请基于以下数据提出增长建议：
+
+【日期】{date}
+
+【关键发现】
+{_extract_key_findings(videos)}
+
+【视频AI评分分析】
+{_format_ai_analysis_for_growth(videos)}
+
+【意外表现】
+{_find_unexpected_performers(videos)}
+
+【昨日假设验证】
+暂无昨日假设（首次运行）
+
+【竞品/行业趋势】
+暂无行业趋势数据
+
+请按照要求输出增长建议报告。
+"""
 
 
 def build_summarizer_prompt(analyst_msg: str, strategist_msg: str, hacker_msg: str) -> str:
@@ -242,6 +325,97 @@ def build_summarizer_prompt(analyst_msg: str, strategist_msg: str, hacker_msg: s
 
 
 # ==================== 辅助函数 ====================
+
+def _format_top3_with_account(videos: list) -> str:
+    """格式化 Top3 视频（带账号信息）"""
+    sorted_videos = sorted(videos, key=lambda x: x.get("readCount", 0), reverse=True)[:3]
+    result = []
+    for i, v in enumerate(sorted_videos, 1):
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉"
+        account = v.get("account", "未知")
+        name = v.get("name", "未知")
+        views = v.get("readCount", 0)
+        ai_grade = v.get("aiAnalysis", {}).get("grade", "N/A")
+        result.append(f"{medal} [{account}] {name} - 播放 {views:,} - 评级 {ai_grade}")
+    return "\n".join(result) if result else "暂无数据"
+
+
+def _format_account_summary(accounts: dict) -> str:
+    """格式化账号汇总"""
+    if not accounts:
+        return "暂无账号数据"
+    result = []
+    for acc, data in accounts.items():
+        result.append(f"- {acc}: {data['count']} 条视频, 平均播放 {data['avg_views']:,.0f}")
+    return "\n".join(result)
+
+
+def _format_ai_summary(videos: list) -> str:
+    """格式化 AI 评分摘要"""
+    if not videos:
+        return "暂无 AI 评分"
+    grades = {}
+    for v in videos:
+        grade = v.get("aiAnalysis", {}).get("grade", "N/A")
+        grades[grade] = grades.get(grade, 0) + 1
+    result = []
+    grade_order = ["S", "A", "B", "C", "N/A"]
+    for g in grade_order:
+        if g in grades:
+            result.append(f"{g} 级: {grades[g]} 条")
+    return " | ".join(result) if result else "暂无数据"
+
+
+def _format_account_performance(accounts: dict) -> str:
+    """格式化账号表现对比"""
+    if not accounts:
+        return "各账号表现均衡，无明显差异"
+
+    # 按平均播放量排序
+    sorted_accounts = sorted(accounts.items(), key=lambda x: x[1].get("avg_views", 0), reverse=True)
+
+    result = []
+    for i, (acc, data) in enumerate(sorted_accounts, 1):
+        avg_views = data.get("avg_views", 0)
+        count = data.get("count", 0)
+        result.append(f"{i}. {acc}: 平均 {avg_views:,.0f} 播放 ({count} 条)")
+    return "\n".join(result)
+
+
+def _format_ai_analysis_for_growth(videos: list) -> str:
+    """为增长黑客格式化 AI 分析"""
+    insights = []
+    for v in videos:
+        analysis = v.get("aiAnalysis", {})
+        if analysis:
+            grade = analysis.get("grade", "N/A")
+            score = analysis.get("overall_score", 0)
+            advice = analysis.get("optimization_advice", "")
+            name = v.get("name", "未知")
+            insights.append(f"- {name} (评分 {score:.1f}/{grade}): {advice}")
+    return "\n".join(insights) if insights else "暂无 AI 分析"
+
+
+def _find_unexpected_performers(videos: list) -> str:
+    """发现意外表现的视频"""
+    if len(videos) < 2:
+        return "数据不足，无法分析"
+
+    # 计算平均播放量
+    avg_views = sum(v.get("readCount", 0) for v in videos) / len(videos)
+
+    unexpected = []
+    for v in videos:
+        views = v.get("readCount", 0)
+        grade = v.get("aiAnalysis", {}).get("grade", "N/A")
+        # 评分低但播放高，或评分高但播放低
+        if grade in ["C", "B"] and views > avg_views * 1.2:
+            unexpected.append(f"💡 意外成功: {v.get('name', '未知')} (评分 {grade}, 播放 {views:,})")
+        elif grade in ["S", "A"] and views < avg_views * 0.8:
+            unexpected.append(f"🔍 需关注: {v.get('name', '未知')} (评分 {grade}, 播放 {views:,})")
+
+    return "\n".join(unexpected) if unexpected else "无明显异常"
+
 
 def _calculate_avg_engagement(videos: list) -> float:
     """计算平均互动率"""

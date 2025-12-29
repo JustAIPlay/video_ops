@@ -5,9 +5,12 @@ Review Manager - 复盘会议管理器
 """
 import asyncio
 import uuid
+import logging
 from typing import Dict, Optional, AsyncIterator
 from datetime import datetime
 from .agents import ReviewAgentFactory
+
+logger = logging.getLogger(__name__)
 from models.review import AgentType, AgentContext, ReviewMessage
 
 
@@ -106,7 +109,9 @@ class ReviewManager:
 
             # 生成内容（流式收集）
             content_parts = []
-            async for chunk in agent.generate_stream(session.context.__dict__):
+            # session.context 可能是对象或 dict
+            context_data = session.context if isinstance(session.context, dict) else session.context.__dict__
+            async for chunk in agent.generate_stream(context_data):
                 content_parts.append(chunk)
 
             # 缓存完整内容
@@ -125,11 +130,15 @@ class ReviewManager:
             session.messages.append(message)
 
         except Exception as e:
-            print(f"[ReviewManager] Agent {agent_type} 生成失败: {e}")
+            logger.error(f"Agent {agent_type} 生成失败: {e}")
+            import traceback
+            traceback.print_exc()
             session.set_agent_status(agent_type, "error")
             # 使用降级内容
             agent = self.agent_factory.create(agent_type.value)
-            session.content_cache[agent_type] = agent._get_fallback_response()
+            fallback = agent._get_fallback_response()
+            logger.warning(f"使用降级响应: {fallback[:50]}...")
+            session.content_cache[agent_type] = fallback
 
     async def get_agent_stream(
         self,
@@ -158,7 +167,8 @@ class ReviewManager:
         else:
             # 缓存未命中，实时生成
             agent = self.agent_factory.create(agent_type.value)
-            async for chunk in agent.generate_stream(session.context.__dict__):
+            context_data = session.context if isinstance(session.context, dict) else session.context.__dict__
+            async for chunk in agent.generate_stream(context_data):
                 yield chunk
 
     def get_session(self, review_id: str) -> Optional[ReviewSession]:

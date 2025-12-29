@@ -1,12 +1,15 @@
 // services/reviewService.ts
 // 每日复盘会议 API 服务
 
+import { AppConfig } from '../types';
+
 // API 基础 URL
 const API_BASE_URL = 'http://127.0.0.1:8001';
 
 export interface StartReviewRequest {
   date: string; // YYYY-MM-DD
   accountFilter?: string[];
+  // 注意：飞书配置从后端 .env 文件读取，不需要前端传递
 }
 
 export interface DataSummary {

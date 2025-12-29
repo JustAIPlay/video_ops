@@ -76,6 +76,7 @@ class StartReviewRequest(BaseModel):
     """启动复盘请求"""
     date: str = Field(..., description="复盘日期 YYYY-MM-DD")
     accountFilter: Optional[List[str]] = Field(None, description="账号过滤")
+    # 注意：每日复盘使用 .env 文件中的飞书配置，不需要前端传递
 
 
 # ==================== 响应模型 ====================

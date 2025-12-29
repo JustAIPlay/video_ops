@@ -2,17 +2,16 @@
 // Phase 3: 每日复盘会议功能 - 主视图组件（微信风格聊天版 + API 对接）
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Sparkles, Play, Loader2 } from 'lucide-react';
+import { Sparkles, Play } from 'lucide-react';
 import { useAppContext } from '../../contexts/AppContext';
 import toast from 'react-hot-toast';
 import { AGENT_STYLES, AGENT_ORDER } from './constants';
-import { AgentAvatar } from './AgentAvatar';
 import { AgentMessage } from './AgentMessage';
-import { ChatInput } from './ChatInput';
 import { ReviewProgress } from './ReviewProgress';
 import { LoadingScreen } from './LoadingScreen';
 import { ErrorRetry } from './ErrorRetry';
 import { SummaryCard } from './SummaryCard';
+import { AgentInput } from './AgentInput';
 import * as reviewService from '../../services/reviewService';
 import type {
   AgentType,
@@ -131,9 +130,9 @@ export const ReviewView: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [summary, setSummary] = useState<ReviewSummary | null>(null);
   const [error, setError] = useState<ReviewError | null>(null);
-  const [conversationRound, setConversationRound] = useState(0);
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [useMock, setUseMock] = useState(false); // 降级到 Mock 模式
+  const [showSummary, setShowSummary] = useState(false); // 控制总结显示
 
   // 清理 SSE 连接
   useEffect(() => {
@@ -149,26 +148,13 @@ export const ReviewView: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 判断是否可以发送消息
-  const canSendMessage = useMemo(() => {
-    return status === 'idle' || status === 'discussion';
-  }, [status]);
-
   // 主持人发起复盘
   const handleStartReview = useCallback(async () => {
-    const startMessage: ReviewMessage = {
-      id: `msg_${Date.now()}_user`,
-      agent: 'user',
-      content: '请开始今天的复盘',
-      timestamp: Date.now(),
-      type: 'text'
-    };
-    setMessages([startMessage]);
     setStatus('preparing');
     setCurrentStage('数据准备');
 
     try {
-      // 尝试调用真实 API
+      // 调用 API（飞书配置从后端 .env 文件读取）
       const response = await reviewService.startReview({
         date: getTodayDate()
       });
@@ -229,17 +215,10 @@ export const ReviewView: React.FC = () => {
     for (const agentType of AGENT_ORDER) {
       await playAgent(id, agentType);
     }
-    // 生成总结
-    try {
-      const summaryResp = await reviewService.summarizeReview(id);
-      setSummary(summaryResp.summary);
-    } catch (err) {
-      console.error('[Review] 生成总结失败，使用 Mock:', err);
-      setSummary(mockSummary);
-    }
+    // Agent 全部完成，进入 discussion 状态
+    setStatus('discussion');
     setCurrentStage('会议总结');
     setProgress(100);
-    setStatus('completed');
   }, []);
 
   // Mock Agent 序列
@@ -247,10 +226,9 @@ export const ReviewView: React.FC = () => {
     for (const agentType of AGENT_ORDER) {
       await playMockAgent(agentType);
     }
+    setStatus('discussion');
     setCurrentStage('会议总结');
     setProgress(100);
-    setStatus('completed');
-    setSummary(mockSummary);
   }, []);
 
   // 播放单个 Agent（真实 API - SSE）
@@ -305,7 +283,6 @@ export const ReviewView: React.FC = () => {
               eventSource.close();
               setAgentStatus(prev => ({ ...prev, [agentType]: 'completed' }));
               setCurrentAgent(null);
-              setStatus('discussion');
               resolve();
             } else if (data.status === 'error') {
               // 错误
@@ -351,70 +328,32 @@ export const ReviewView: React.FC = () => {
         setTimeout(() => {
           setAgentStatus(prev => ({ ...prev, [agentType]: 'completed' }));
           setCurrentAgent(null);
-          setStatus('discussion');
           resolve();
         }, 1500);
       }, 1000);
     });
   }, []);
 
-  // 主持人发送追问
-  const handleSendMessage = useCallback(async (content: string) => {
-    const userMessage: ReviewMessage = {
-      id: `msg_${Date.now()}_user`,
-      agent: 'user',
-      content,
-      timestamp: Date.now(),
-      type: 'text'
-    };
-    setMessages(prev => [...prev, userMessage]);
-
+  // 查看总结
+  const handleShowSummary = useCallback(async () => {
     if (useMock || !reviewId) {
-      // Mock 模式
-      const nextAgent = AGENT_ORDER[conversationRound % AGENT_ORDER.length];
-      setConversationRound(prev => prev + 1);
-
-      setTimeout(() => {
-        setCurrentAgent(nextAgent);
-        setAgentStatus(prev => ({ ...prev, [nextAgent]: 'thinking' }));
-
-        setTimeout(() => {
-          setAgentStatus(prev => ({ ...prev, [nextAgent]: 'speaking' }));
-
-          const agentMessage: ReviewMessage = {
-            id: `msg_${Date.now()}_${nextAgent}`,
-            agent: nextAgent,
-            content: mockAgentMessages[nextAgent] || '感谢您的提问，让我进一步分析...',
-            timestamp: Date.now(),
-            type: 'text'
-          };
-          setMessages(prev => [...prev, agentMessage]);
-
-          setTimeout(() => {
-            setAgentStatus(prev => ({ ...prev, [nextAgent]: 'completed' }));
-            setCurrentAgent(null);
-          }, 1000);
-        }, 800);
-      }, 500);
+      setSummary(mockSummary);
+      setShowSummary(true);
+      setStatus('completed');
     } else {
-      // 真实 API
       try {
-        const response = await reviewService.askQuestion(reviewId, { question: content });
-
-        const agentMessage: ReviewMessage = {
-          id: `msg_${Date.now()}_${response.agent as AgentType}`,
-          agent: response.agent as AgentType,
-          content: response.answer,
-          timestamp: response.timestamp,
-          type: 'text'
-        };
-        setMessages(prev => [...prev, agentMessage]);
+        const summaryResp = await reviewService.summarizeReview(reviewId);
+        setSummary(summaryResp.summary);
+        setShowSummary(true);
+        setStatus('completed');
       } catch (err) {
-        console.error('[Review] 提问失败:', err);
-        toast.error('提问失败，请稍后重试');
+        console.error('[Review] 生成总结失败，使用 Mock:', err);
+        setSummary(mockSummary);
+        setShowSummary(true);
+        setStatus('completed');
       }
     }
-  }, [conversationRound, reviewId, useMock]);
+  }, [reviewId, useMock]);
 
   // 执行操作项
   const handleExecuteAction = useCallback(async (item: ActionItem) => {
@@ -474,6 +413,7 @@ export const ReviewView: React.FC = () => {
     setStatus('idle');
     setMessages([]);
     setSummary(null);
+    setShowSummary(false);
     setAgentStatus({
       analyst: 'idle',
       strategist: 'idle',
@@ -481,26 +421,94 @@ export const ReviewView: React.FC = () => {
     });
     setCurrentStage('数据准备');
     setProgress(0);
-    setConversationRound(0);
     setReviewId(null);
     setUseMock(false);
   }, []);
+
+  // 用户提问处理 - 解析 @agent 语法
+  const handleUserQuestion = useCallback(async (input: string) => {
+    // 添加用户消息
+    const userMessage: ReviewMessage = {
+      id: `msg_${Date.now()}_user`,
+      agent: 'user',
+      content: input,
+      timestamp: Date.now(),
+      type: 'text'
+    };
+    setMessages(prev => [...prev, userMessage]);
+
+    // 解析 @agent 语法（支持中文）
+    // 匹配 @后面跟着中文或英文的 agent 名称
+    const atMatch = input.match(/@([数据分析排期策略增长黑客analyststrategisthacker]+)/);
+    let targetAgent: AgentType | null = null;
+    let question = input;
+
+    if (atMatch) {
+      const agentName = atMatch[1];
+      // 映射中文名称到 agent 类型
+      const agentMap: Record<string, AgentType> = {
+        '数据分析': 'analyst',
+        'analyst': 'analyst',
+        '排期策略': 'strategist',
+        'strategist': 'strategist',
+        '增长黑客': 'hacker',
+        'hacker': 'hacker'
+      };
+      targetAgent = agentMap[agentName] || null;
+      // 移除 @agent 部分（支持中文字符）
+      question = input.replace(/@[数据分析排期策略增长黑客analyststrategisthacker]+\s*/, '').trim();
+    }
+
+    // 如果没有指定 agent，默认使用 analyst
+    const agentToAsk = targetAgent || 'analyst';
+
+    if (useMock || !reviewId) {
+      // Mock 模式：模拟回复
+      setTimeout(() => {
+        const mockReply: ReviewMessage = {
+          id: `msg_${Date.now()}_${agentToAsk}`,
+          agent: agentToAsk,
+          content: `**${AGENT_STYLES[agentToAsk].name}**:\n\n关于"${question}"的回答：\n\n这是一个 Mock 回复。在真实模式下，我会调用后端 API 获取 ${AGENT_STYLES[agentToAsk].name} 的分析结果。`,
+          timestamp: Date.now(),
+          type: 'text'
+        };
+        setMessages(prev => [...prev, mockReply]);
+      }, 1000);
+    } else {
+      // 真实 API：调用后端提问接口
+      try {
+        const response = await reviewService.askQuestion(reviewId, {
+          question,
+          targetAgent: agentToAsk
+        });
+
+        const agentReply: ReviewMessage = {
+          id: `msg_${Date.now()}_${response.agent}`,
+          agent: response.agent,
+          content: response.answer,
+          timestamp: response.timestamp,
+          type: 'text'
+        };
+        setMessages(prev => [...prev, agentReply]);
+      } catch (err) {
+        console.error('[Review] 提问失败:', err);
+        toast.error('提问失败，请重试');
+      }
+    }
+  }, [reviewId, useMock]);
 
   // 更新进度
   useEffect(() => {
     if (status === 'in_progress' || status === 'discussion') {
       const stageIndex = AGENT_ORDER.findIndex(a => agentStatus[a] === 'completed');
-      setProgress((stageIndex + 1) * 20);
+      setProgress((stageIndex + 1) * 25); // 0, 25, 50, 75, 100
     }
   }, [agentStatus, status]);
 
-  // 输入框提示文字
-  const inputPlaceholder = useMemo(() => {
-    if (status === 'idle') return '输入"请开始今天的复盘"发起会议...';
-    if (status === 'discussion') return '输入问题继续讨论...';
-    if (status === 'completed') return '会议已结束';
-    return 'Agent 发言中...';
-  }, [status]);
+  // 判断是否显示总结按钮
+  const showSummaryButton = useMemo(() => {
+    return status === 'discussion' && !showSummary;
+  }, [status, showSummary]);
 
   return (
     <div className={`flex flex-col h-full p-4 lg:p-8 gap-4 lg:gap-6 max-w-[1400px] mx-auto w-full transition-all duration-500 ${
@@ -528,7 +536,7 @@ export const ReviewView: React.FC = () => {
               {status === 'idle' && '等待发起'}
               {status === 'preparing' && '准备中...'}
               {status === 'in_progress' && '进行中'}
-              {status === 'discussion' && '讨论中'}
+              {status === 'discussion' && '讨论中 - 点击下方按钮查看总结'}
               {status === 'completed' && '已完成'}
               {useMock && ' (演示模式)'}
             </p>
@@ -586,7 +594,7 @@ export const ReviewView: React.FC = () => {
                 <Sparkles className={`w-10 h-10 ${isAI ? 'text-indigo-400' : 'text-slate-400'}`} />
               </div>
               <p className="text-lg font-medium mb-2">开始今天的复盘会议</p>
-              <p className="text-sm">输入"请开始今天的复盘"或点击下方按钮</p>
+              <p className="text-sm">点击下方按钮启动 AI 分析</p>
             </div>
           )}
 
@@ -647,7 +655,7 @@ export const ReviewView: React.FC = () => {
               )}
 
               {/* 总结卡片 */}
-              {status === 'completed' && summary && (
+              {showSummary && summary && (
                 <SummaryCard
                   summary={summary}
                   isAI={isAI}
@@ -663,33 +671,55 @@ export const ReviewView: React.FC = () => {
           )}
         </div>
 
-        {/* 输入框区域 */}
-        {status !== 'preparing' && (
-          <ChatInput
-            onSend={status === 'idle' ? handleStartReview : handleSendMessage}
-            disabled={!canSendMessage || currentAgent !== null}
-            placeholder={inputPlaceholder}
-            isAI={isAI}
-          />
-        )}
-      </div>
+        {/* 底部操作区域 */}
+        <div className={`shrink-0 p-4 border-t transition-all duration-500 ${
+          isAI ? 'border-indigo-100 bg-white/80' : 'border-slate-100 bg-white/80'
+        }`}>
+          <div className="max-w-4xl mx-auto">
+            {/* 开始复盘按钮 */}
+            {status === 'idle' && (
+              <div className="flex justify-center">
+                <button
+                  onClick={handleStartReview}
+                  className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 flex items-center justify-center gap-2 ${
+                    isAI
+                      ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-200 hover:shadow-xl hover:shadow-indigo-300 hover:scale-105'
+                      : 'bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105'
+                  }`}
+                >
+                  <Play className="w-5 h-5" />
+                  开始复盘
+                </button>
+              </div>
+            )}
 
-      {/* 快捷操作按钮 */}
-      {status === 'idle' && (
-        <div className="shrink-0 flex justify-center">
-          <button
-            onClick={handleStartReview}
-            className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 flex items-center gap-2 ${
-              isAI
-                ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-200 hover:shadow-xl hover:shadow-indigo-300 hover:scale-105'
-                : 'bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-lg shadow-violet-200 hover:shadow-xl hover:shadow-violet-300 hover:scale-105'
-            }`}
-          >
-            <Play className="w-5 h-5" />
-            开始复盘
-          </button>
+            {/* 输入框 + 按钮 */}
+            {status !== 'idle' && status !== 'preparing' && (
+              <>
+                {/* Agent 正在分析时的状态显示 */}
+                {currentAgent ? (
+                  <div className="flex items-center justify-center">
+                    <div className="text-sm text-slate-400">
+                      {`${AGENT_STYLES[currentAgent].name} 正在分析...`}
+                    </div>
+                  </div>
+                ) : (
+                  /* 输入框和按钮 - 水平居中排列 */
+                  <AgentInput
+                    onSend={handleUserQuestion}
+                    disabled={status !== 'discussion' && status !== 'completed'}
+                    isAI={isAI}
+                    showSummaryButton={showSummaryButton}
+                    onShowSummary={handleShowSummary}
+                    showEndButton={status === 'completed'}
+                    onEnd={handleEnd}
+                  />
+                )}
+              </>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };
