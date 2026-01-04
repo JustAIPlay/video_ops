@@ -36,6 +36,13 @@ const getTodayDate = (): string => {
   return new Date().toISOString().split('T')[0];
 };
 
+// 获取昨天的日期 (YYYY-MM-DD)
+const getYesterdayDate = (): string => {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  return yesterday.toISOString().split('T')[0];
+};
+
 // Mock 数据（作为降级方案）
 const mockLoadingSteps = [
   { label: '从飞书获取今日数据', status: 'completed' },
@@ -133,6 +140,7 @@ export const ReviewView: React.FC = () => {
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [useMock, setUseMock] = useState(false); // 降级到 Mock 模式
   const [showSummary, setShowSummary] = useState(false); // 控制总结显示
+  const [selectedDate, setSelectedDate] = useState<string>(getYesterdayDate()); // 默认复盘昨天
 
   // 清理 SSE 连接
   useEffect(() => {
@@ -156,7 +164,7 @@ export const ReviewView: React.FC = () => {
     try {
       // 调用 API（飞书配置从后端 .env 文件读取）
       const response = await reviewService.startReview({
-        date: getTodayDate()
+        date: selectedDate
       });
       setReviewId(response.reviewId);
 
@@ -678,7 +686,24 @@ export const ReviewView: React.FC = () => {
           <div className="max-w-4xl mx-auto">
             {/* 开始复盘按钮 */}
             {status === 'idle' && (
-              <div className="flex justify-center">
+              <div className="flex flex-col items-center gap-4">
+                {/* 日期选择器 */}
+                <div className="flex items-center gap-3">
+                  <label className={`text-sm font-medium ${
+                    isAI ? 'text-indigo-600' : 'text-slate-600'
+                  }`}>复盘日期:</label>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    max={getTodayDate()}
+                    className={`px-4 py-2 rounded-lg border font-medium outline-none transition-all duration-300 ${
+                      isAI
+                        ? 'border-indigo-200 bg-indigo-50 text-indigo-700 focus:ring-2 focus:ring-indigo-400'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 focus:ring-2 focus:ring-violet-400'
+                    }`}
+                  />
+                </div>
                 <button
                   onClick={handleStartReview}
                   className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 flex items-center justify-center gap-2 ${
