@@ -68,11 +68,20 @@ export interface TargetConfig {
   tableId: string;
 }
 
+export interface AgentPrompts {
+  dataAnalyst: string;      // 数据分析 Agent 提示词
+  strategist: string;        // 排期策略 Agent 提示词
+  growthHacker: string;      // 增长黑客 Agent 提示词
+  summarizer: string;        // 总结 Agent 提示词
+}
+
 export interface AppConfig {
   feishuAppId: string;
   feishuAppSecret: string;
   // Map JiKe username (or group name) to specific Base Token and Table ID
-  accountTableMapping: Record<string, TargetConfig>; 
+  accountTableMapping: Record<string, TargetConfig>;
+  // Agent 提示词配置
+  agentPrompts: AgentPrompts;
 }
 
 export interface ScheduleItem {

@@ -20,7 +20,10 @@ const AppContent: React.FC = () => {
     try {
       const savedConfig = localStorage.getItem(STORAGE_KEY);
       if (savedConfig) {
-        return JSON.parse(savedConfig);
+        return {
+          ...DEFAULT_CONFIG,
+          ...JSON.parse(savedConfig)
+        };
       }
     } catch (error) {
       console.error("Failed to load configuration from storage:", error);
@@ -48,7 +51,7 @@ const AppContent: React.FC = () => {
       {activeTab === 'sync' && <SyncView config={config} />}
       {activeTab === 'settings' && <SettingsView config={config} onSave={handleConfigSave} />}
       {activeTab === 'schedule' && <ScheduleView config={config} />}
-      {activeTab === 'review' && <ReviewView />}
+      {activeTab === 'review' && <ReviewView config={config} />}
     </Layout>
   );
 };

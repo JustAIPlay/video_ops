@@ -126,6 +126,7 @@ class ReviewAgentFactory:
     """复盘 Agent 工厂"""
 
     _agents: Dict[str, type] = {}
+    _custom_prompts: Dict[str, str] = {}
 
     @classmethod
     def register(cls, agent_type: str, agent_class: type):
@@ -133,9 +134,20 @@ class ReviewAgentFactory:
         cls._agents[agent_type] = agent_class
 
     @classmethod
+    def set_custom_prompts(cls, prompts: dict):
+        """设置自定义提示词"""
+        cls._custom_prompts = prompts
+
+    @classmethod
     def create(cls, agent_type: str, **kwargs) -> ReviewAgentBase:
         """创建 Agent 实例"""
         agent_class = cls._agents.get(agent_type)
         if not agent_class:
             raise ValueError(f"未知的 Agent 类型: {agent_type}")
+
+        # 使用自定义提示词（如果有）
+        custom_prompt = cls._custom_prompts.get(agent_type)
+        if custom_prompt:
+            return agent_class(system_prompt=custom_prompt)
+
         return agent_class(**kwargs)

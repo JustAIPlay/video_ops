@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { AppConfig, TargetConfig } from '../types';
-import { Save, Plus, Trash2, Key, Split, ArrowRight, Box, Layers, Table } from 'lucide-react';
+import { AppConfig, TargetConfig, AgentPrompts } from '../types';
+import { DEFAULT_CONFIG } from '../constants';
+import { Save, Plus, Trash2, Key, Split, ArrowRight, Box, Layers, Table, Bot, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface SettingsViewProps {
   config: AppConfig;
@@ -8,7 +9,12 @@ interface SettingsViewProps {
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({ config, onSave }) => {
-  const [formData, setFormData] = useState<AppConfig>(config);
+  const [formData, setFormData] = useState<AppConfig>({
+    ...DEFAULT_CONFIG,
+    ...config,
+    accountTableMapping: config.accountTableMapping || {},
+    agentPrompts: config.agentPrompts || DEFAULT_CONFIG.agentPrompts
+  });
   
   // New Mapping State
   const [newAccount, setNewAccount] = useState('');
@@ -39,9 +45,41 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, onSave }) => {
   };
 
   const handleRemoveMapping = (account: string) => {
-    const newMapping = { ...formData.accountTableMapping };
+    const newMapping = { ...(formData.accountTableMapping || {}) };
     delete newMapping[account];
     setFormData(prev => ({ ...prev, accountTableMapping: newMapping }));
+  };
+
+  const handleAgentPromptChange = (agentKey: keyof AgentPrompts, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      agentPrompts: {
+        ...prev.agentPrompts,
+        [agentKey]: value
+      }
+    }));
+  };
+
+  const handleSave = () => {
+    // 验证 Agent 提示词配置
+    const prompts = formData.agentPrompts;
+    const hasAnyPrompt = prompts.dataAnalyst || prompts.strategist ||
+                         prompts.growthHacker || prompts.summarizer;
+
+    if (hasAnyPrompt) {
+      const required = ['dataAnalyst', 'strategist', 'growthHacker'];
+      const empty = required.filter(k => !prompts[k]?.trim());
+      if (empty.length > 0) {
+        const names = {
+          dataAnalyst: '数据分析 Agent',
+          strategist: '排期策略 Agent',
+          growthHacker: '增长黑客 Agent'
+        };
+        alert(`以下 Agent 提示词不能为空:\n${empty.map(k => names[k as keyof typeof names]).join('\n')}`);
+        return;
+      }
+    }
+    onSave(formData);
   };
 
   return (
@@ -60,7 +98,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, onSave }) => {
         </div>
 
         <button
-          onClick={() => onSave(formData)}
+          onClick={handleSave}
           className="flex items-center gap-2 px-8 py-3 bg-[#8C7CF0] hover:bg-[#7b6be6] text-white rounded-2xl font-bold shadow-lg shadow-violet-200 transition-all hover:-translate-y-1 active:scale-95 active:shadow-sm"
         >
           <Save className="w-5 h-5" />
@@ -68,13 +106,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, onSave }) => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-20">
-        
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-20">
+
         {/* Left Column: Feishu API Config */}
-        <div className="lg:col-span-1 space-y-8">
-            <section className="bg-white rounded-3xl p-8 shadow-xl shadow-slate-100 border border-white relative overflow-hidden">
+        <div className="lg:col-span-1 space-y-6">
+            <section className="bg-white rounded-3xl p-6 shadow-xl shadow-slate-100 border border-white relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-full blur-2xl opacity-60 pointer-events-none"></div>
-              
+
               <div className="flex items-center gap-4 mb-6 relative z-10">
                 <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-500 flex items-center justify-center">
                     <Key className="w-6 h-6" />
@@ -84,7 +122,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, onSave }) => {
                     <p className="text-sm text-slate-400">飞书开放平台应用凭证</p>
                 </div>
               </div>
-              
+
               <div className="space-y-6 relative z-10">
                 <div className="space-y-2">
                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">App ID <span className="text-orange-400">*</span></label>
@@ -106,6 +144,67 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, onSave }) => {
                       placeholder="••••••••••••"
                     />
                 </div>
+              </div>
+            </section>
+
+            {/* Agent 提示词配置 - 移到左侧 */}
+            <section className="bg-white rounded-3xl p-6 shadow-xl shadow-slate-100 border border-white relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 rounded-full blur-2xl opacity-60 pointer-events-none"></div>
+
+              <div className="flex items-center gap-4 mb-6 relative z-10">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-500 to-cyan-400 text-white flex items-center justify-center">
+                  <Bot className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-xl text-slate-800">Agent 提示词</h3>
+                  <p className="text-sm text-slate-400">配置复盘 Agent 提示词</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 relative z-10">
+                {/* 数据分析 Agent */}
+                <PromptEditor
+                  agentName="数据分析 Agent"
+                  agentKey="dataAnalyst"
+                  value={formData.agentPrompts?.dataAnalyst || ""}
+                  onChange={(v) => handleAgentPromptChange('dataAnalyst', v)}
+                  placeholder="输入数据分析 Agent 的 System Prompt..."
+                  color="blue"
+                  icon={<span className="text-lg">📊</span>}
+                />
+
+                {/* 排期策略 Agent */}
+                <PromptEditor
+                  agentName="排期策略 Agent"
+                  agentKey="strategist"
+                  value={formData.agentPrompts?.strategist || ""}
+                  onChange={(v) => handleAgentPromptChange('strategist', v)}
+                  placeholder="输入排期策略 Agent 的 System Prompt..."
+                  color="purple"
+                  icon={<span className="text-lg">🎯</span>}
+                />
+
+                {/* 增长黑客 Agent */}
+                <PromptEditor
+                  agentName="增长黑客 Agent"
+                  agentKey="growthHacker"
+                  value={formData.agentPrompts?.growthHacker || ""}
+                  onChange={(v) => handleAgentPromptChange('growthHacker', v)}
+                  placeholder="输入增长黑客 Agent 的 System Prompt..."
+                  color="orange"
+                  icon={<span className="text-lg">🚀</span>}
+                />
+
+                {/* 总结 Agent */}
+                <PromptEditor
+                  agentName="总结 Agent"
+                  agentKey="summarizer"
+                  value={formData.agentPrompts?.summarizer || ""}
+                  onChange={(v) => handleAgentPromptChange('summarizer', v)}
+                  placeholder="输入总结 Agent 的 System Prompt..."
+                  color="green"
+                  icon={<span className="text-lg">📝</span>}
+                />
               </div>
             </section>
         </div>
@@ -178,13 +277,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, onSave }) => {
 
               {/* Mapping List */}
               <div className="space-y-3 relative z-10">
-                {Object.entries(formData.accountTableMapping).length === 0 ? (
+                {Object.entries(formData.accountTableMapping || {}).length === 0 ? (
                     <div className="text-center py-12 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
                         <Box className="w-12 h-12 text-slate-200 mx-auto mb-3" />
                         <p className="text-slate-400 font-medium">暂无映射规则，请在上方添加</p>
                     </div>
                 ) : (
-                    (Object.entries(formData.accountTableMapping) as [string, TargetConfig][]).map(([account, mapConfig]) => (
+                    (Object.entries(formData.accountTableMapping || {}) as [string, TargetConfig][]).map(([account, mapConfig]) => (
                         <div key={account} className="group flex flex-col md:flex-row items-start md:items-center justify-between p-4 bg-white border border-slate-100 hover:border-blue-100 hover:shadow-md hover:shadow-blue-50 rounded-2xl transition-all">
                             <div className="flex items-center gap-4 mb-3 md:mb-0">
                                 <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center font-bold">
@@ -213,6 +312,62 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, onSave }) => {
             </section>
         </div>
       </div>
+
+    </div>
+  );
+};
+
+// PromptEditor 子组件
+interface PromptEditorProps {
+  agentName: string;
+  agentKey: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  color: string;
+  icon: React.ReactNode;
+}
+
+const PromptEditor: React.FC<PromptEditorProps> = ({
+  agentName,
+  value,
+  onChange,
+  placeholder,
+  color,
+  icon
+}) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className={`bg-${color}-50 rounded-xl p-4 border border-${color}-100`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className={`w-8 h-8 rounded-lg bg-${color}-500 text-white flex items-center justify-center text-sm`}>
+            {icon}
+          </div>
+          <div>
+            <h4 className="font-bold text-slate-800 text-sm">{agentName}</h4>
+            <p className="text-xs text-slate-400">
+              {value.length > 0 ? `${value.length} 字符` : '未配置'}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-white/50 transition-colors"
+        >
+          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+      </div>
+
+      {isExpanded && (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full h-80 px-4 py-3 bg-white border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y min-h-[200px]"
+        />
+      )}
     </div>
   );
 };

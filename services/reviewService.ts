@@ -9,6 +9,13 @@ const API_BASE_URL = 'http://127.0.0.1:8001';
 export interface StartReviewRequest {
   date: string; // YYYY-MM-DD
   accountFilter?: string[];
+  // Agent 提示词配置（从前端传递）
+  agentPrompts?: {
+    dataAnalyst?: string;
+    strategist?: string;
+    growthHacker?: string;
+    summarizer?: string;
+  };
   // 注意：飞书配置从后端 .env 文件读取，不需要前端传递
 }
 
@@ -74,14 +81,23 @@ export interface SummarizeResponse {
 /**
  * 启动复盘会议
  */
-export async function startReview(request: StartReviewRequest): Promise<StartReviewResponse> {
+export async function startReview(
+  request: StartReviewRequest,
+  config?: AppConfig
+): Promise<StartReviewResponse> {
   try {
+    // 如果提供了 config，从中提取提示词配置
+    const payload = {
+      ...request,
+      agentPrompts: config?.agentPrompts || request.agentPrompts
+    };
+
     const response = await fetch(`${API_BASE_URL}/api/review/start`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {

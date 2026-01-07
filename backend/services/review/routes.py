@@ -33,6 +33,27 @@ async def start_review(request: StartReviewRequest, background_tasks: Background
     从飞书获取当天数据，并发预加载所有 Agent 内容
     """
     try:
+        # 验证提示词配置
+        if request.agentPrompts is not None:
+            required_prompts = {
+                "data_analyst": request.agentPrompts.data_analyst,
+                "strategist": request.agentPrompts.strategist,
+                "growth_hacker": request.agentPrompts.growth_hacker,
+            }
+            empty_prompts = [name for name, value in required_prompts.items() if not value or not value.strip()]
+
+            if empty_prompts:
+                name_map = {
+                    "data_analyst": "数据分析 Agent",
+                    "strategist": "排期策略 Agent",
+                    "growth_hacker": "增长黑客 Agent"
+                }
+                empty_names = [name_map[k] for k in empty_prompts]
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"以下 Agent 提示词不能为空: {', '.join(empty_names)}"
+                )
+
         manager = get_review_manager()
 
         # 构建上下文（从飞书获取真实数据，使用 .env 配置）
@@ -40,8 +61,16 @@ async def start_review(request: StartReviewRequest, background_tasks: Background
 
         context = await _build_review_context(request.date, request.accountFilter)
 
-        # 创建会话
-        session = manager.create_session(context)
+        # 创建会话（传递提示词配置）
+        agent_prompts_dict = None
+        if request.agentPrompts:
+            agent_prompts_dict = {
+                "data_analyst": request.agentPrompts.data_analyst,
+                "strategist": request.agentPrompts.strategist,
+                "growth_hacker": request.agentPrompts.growth_hacker,
+                "summarizer": request.agentPrompts.summarizer,
+            }
+        session = manager.create_session(context, agent_prompts=agent_prompts_dict)
 
         # 同步开始预加载
         logger.info(f"开始预加载 Agent，reviewId={session.review_id}")

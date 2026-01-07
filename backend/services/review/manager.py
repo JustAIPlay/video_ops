@@ -61,18 +61,35 @@ class ReviewManager:
         self.sessions: Dict[str, ReviewSession] = {}
         self.agent_factory = ReviewAgentFactory()
 
-    def create_session(self, context: AgentContext) -> ReviewSession:
+    def create_session(
+        self,
+        context: AgentContext,
+        agent_prompts: Optional[dict] = None
+    ) -> ReviewSession:
         """
         创建复盘会话
 
         Args:
             context: Agent 上下文
+            agent_prompts: 可选的自定义提示词配置
 
         Returns:
             ReviewSession 实例
         """
         review_id = f"rev_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
         session = ReviewSession(review_id, context)
+
+        # 设置自定义提示词
+        if agent_prompts:
+            prompt_mapping = {
+                "analyst": agent_prompts.get("data_analyst"),
+                "strategist": agent_prompts.get("strategist"),
+                "hacker": agent_prompts.get("growth_hacker"),
+            }
+            # 过滤掉 None 值
+            filtered_prompts = {k: v for k, v in prompt_mapping.items() if v}
+            self.agent_factory.set_custom_prompts(filtered_prompts)
+
         self.sessions[review_id] = session
         return session
 

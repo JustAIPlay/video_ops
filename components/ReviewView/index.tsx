@@ -13,6 +13,7 @@ import { ErrorRetry } from './ErrorRetry';
 import { SummaryCard } from './SummaryCard';
 import { AgentInput } from './AgentInput';
 import * as reviewService from '../../services/reviewService';
+import { AppConfig } from '../../types';
 import type {
   AgentType,
   AgentStatus,
@@ -23,6 +24,10 @@ import type {
   ActionItem,
   ReviewError
 } from '../../types/review';
+
+interface ReviewViewProps {
+  config: AppConfig;
+}
 
 // 获取明天的日期 (YYYY-MM-DD)
 const getTomorrowDate = (): string => {
@@ -117,7 +122,7 @@ const mockSummary: ReviewSummary = {
   ]
 };
 
-export const ReviewView: React.FC = () => {
+export const ReviewView: React.FC<ReviewViewProps> = ({ config }) => {
   const { mode } = useAppContext();
   const isAI = mode === 'ai';
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -162,10 +167,10 @@ export const ReviewView: React.FC = () => {
     setCurrentStage('数据准备');
 
     try {
-      // 调用 API（飞书配置从后端 .env 文件读取）
+      // 调用 API，传递 config（包含 Agent 提示词配置）
       const response = await reviewService.startReview({
         date: selectedDate
-      });
+      }, config);
       setReviewId(response.reviewId);
 
       // 更新加载步骤
@@ -199,7 +204,7 @@ export const ReviewView: React.FC = () => {
       console.error('[Review] 启动复盘失败，使用 Mock 模式:', err);
       fallbackToMock();
     }
-  }, []);
+  }, [selectedDate, config]);
 
   // 降级到 Mock 模式
   const fallbackToMock = useCallback(() => {

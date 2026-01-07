@@ -22,8 +22,9 @@ AGENT_NAME = "ReviewAgent"
 class DataAnalystAgent(ReviewAgentBase):
     """数据分析 Agent"""
 
-    def __init__(self):
-        super().__init__(DATA_ANALYST_SYSTEM_PROMPT)
+    def __init__(self, system_prompt: str = None):
+        prompt = system_prompt or DATA_ANALYST_SYSTEM_PROMPT
+        super().__init__(prompt)
 
     def build_prompt(self, context: Dict[str, Any]) -> str:
         """构建数据分析提示"""
@@ -45,8 +46,9 @@ class DataAnalystAgent(ReviewAgentBase):
 class StrategistAgent(ReviewAgentBase):
     """排期策略 Agent"""
 
-    def __init__(self):
-        super().__init__(STRATEGIST_SYSTEM_PROMPT)
+    def __init__(self, system_prompt: str = None):
+        prompt = system_prompt or STRATEGIST_SYSTEM_PROMPT
+        super().__init__(prompt)
 
     def build_prompt(self, context: Dict[str, Any]) -> str:
         """构建策略分析提示"""
@@ -68,8 +70,9 @@ class StrategistAgent(ReviewAgentBase):
 class GrowthHackerAgent(ReviewAgentBase):
     """增长黑客 Agent"""
 
-    def __init__(self):
-        super().__init__(GROWTH_HACKER_SYSTEM_PROMPT)
+    def __init__(self, system_prompt: str = None):
+        prompt = system_prompt or GROWTH_HACKER_SYSTEM_PROMPT
+        super().__init__(prompt)
 
     def build_prompt(self, context: Dict[str, Any]) -> str:
         """构建增长建议提示"""

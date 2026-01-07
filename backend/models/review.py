@@ -72,10 +72,19 @@ class AgentContext(BaseModel):
     yesterdayHypotheses: Optional[List[str]] = Field(None, description="昨天的假设")
 
 
+class AgentPrompts(BaseModel):
+    """Agent 提示词配置"""
+    data_analyst: Optional[str] = Field(None, description="数据分析 Agent 提示词")
+    strategist: Optional[str] = Field(None, description="排期策略 Agent 提示词")
+    growth_hacker: Optional[str] = Field(None, description="增长黑客 Agent 提示词")
+    summarizer: Optional[str] = Field(None, description="总结 Agent 提示词")
+
+
 class StartReviewRequest(BaseModel):
     """启动复盘请求"""
     date: str = Field(..., description="复盘日期 YYYY-MM-DD")
     accountFilter: Optional[List[str]] = Field(None, description="账号过滤")
+    agentPrompts: Optional[AgentPrompts] = Field(None, description="Agent 提示词配置（从前端传递）")
     # 注意：每日复盘使用 .env 文件中的飞书配置，不需要前端传递
 
 
