@@ -42,6 +42,8 @@ export interface VideoItem {
   visibleType: number;
   status: number;
   desc?: VideoDesc;
+  is_plan_video?: number; // 是否为定时发布视频: 0=否, 1=是
+  effectiveTime?: number; // 定时发布生效时间 (timestamp, 秒)
 }
 
 // Based on PDF "data" array element

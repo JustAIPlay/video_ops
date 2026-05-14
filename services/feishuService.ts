@@ -262,11 +262,30 @@ export const mapVideoToFeishuFields = (video: VideoItem, accountName: string, gr
     // Helper for Date -> Timestamp
     // Feishu Date fields prefer timestamp (milliseconds)
     let publishTime: number | null = null;
-    if (video.create_time) {
+    let timeSource = '';
+
+    // 如果是定时发布视频（is_plan_video === 1）且有 effectiveTime，使用 effectiveTime
+    if (video.is_plan_video === 1 && video.effectiveTime) {
+        publishTime = video.effectiveTime * 1000;
+        timeSource = '定时发布时间 (effectiveTime)';
+        console.log(`📅 [发布时间] 视频为定时发布，使用 effectiveTime: ${new Date(publishTime).toLocaleString('zh-CN')}`);
+    } else if (video.create_time) {
         publishTime = video.create_time * 1000;
+        timeSource = '创建时间 (create_time)';
+        console.log(`📅 [发布时间] 使用 create_time: ${new Date(publishTime).toLocaleString('zh-CN')}`);
     } else {
         const parsed = new Date(video.createTime).getTime();
-        if (!isNaN(parsed)) publishTime = parsed;
+        if (!isNaN(parsed)) {
+            publishTime = parsed;
+            timeSource = '创建时间字符串 (createTime)';
+            console.log(`📅 [发布时间] 使用 createTime: ${new Date(publishTime).toLocaleString('zh-CN')}`);
+        }
+    }
+
+    if (publishTime) {
+        console.log(`✅ [发布时间] 视频: "${video.name.substring(0, 30)}..." | 来源: ${timeSource} | 时间: ${new Date(publishTime).toLocaleString('zh-CN')}`);
+    } else {
+        console.warn(`⚠️ [发布时间] 无法获取视频发布时间: "${video.name.substring(0, 30)}..."`);
     }
 
     return {

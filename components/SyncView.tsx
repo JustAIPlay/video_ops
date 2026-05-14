@@ -502,7 +502,13 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
         // This avoids 1 search request per video, reducing API calls significantly.
         let existingRecordsMap = new Map<number, Array<{ id: string, desc: string }>>();
         if (account.videos.length > 0) {
-            const timestamps = account.videos.map(v => v.create_time ? v.create_time * 1000 : new Date(v.createTime).getTime());
+            // 使用与 mapVideoToFeishuFields 一致的时间逻辑：定时发布视频用 effectiveTime
+            const timestamps = account.videos.map(v => {
+                if (v.is_plan_video === 1 && v.effectiveTime) {
+                    return v.effectiveTime * 1000;
+                }
+                return v.create_time ? v.create_time * 1000 : new Date(v.createTime).getTime();
+            });
             // Widen range by 1 minute to handle minute-truncation mismatches
             const minTime = Math.min(...timestamps) - 60000;
             const maxTime = Math.max(...timestamps) + 60000;
@@ -524,8 +530,13 @@ const SyncView: React.FC<SyncViewProps> = ({ config }) => {
             await sleep(50);
 
             const promises = batch.map(video => {
-                // Check if this video already exists
-                const rawPubTime = video.create_time ? video.create_time * 1000 : new Date(video.createTime).getTime();
+                // 使用与 mapVideoToFeishuFields 一致的时间逻辑：定时发布视频用 effectiveTime
+                let rawPubTime: number;
+                if (video.is_plan_video === 1 && video.effectiveTime) {
+                    rawPubTime = video.effectiveTime * 1000;
+                } else {
+                    rawPubTime = video.create_time ? video.create_time * 1000 : new Date(video.createTime).getTime();
+                }
                 // Floor to minute to match Feishu's precision
                 const matchPubTime = Math.floor(rawPubTime / 60000) * 60000; 
                 
